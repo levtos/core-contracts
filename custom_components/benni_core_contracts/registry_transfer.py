@@ -7,12 +7,14 @@ import json
 import re
 
 from .registry import RegistryPayload, RegistryValidationError
+from .const import SUPPORTED_REGISTRY_SCHEMA_VERSIONS
 
 FORMAT = 'core-contracts-registry'
 FORMAT_VERSION = 1
 MAX_BYTES = 2_000_000
 _SENSITIVE = ('password', 'passwd', 'secret', 'token', 'credential', 'dsn', 'database_url', 'connection_string', 'postgres')
-_BINDING = {'binding_id','source_id','entity_id','field','capability','profile_id','required','freshness_ttl_seconds','consumer_ids','fallback','read_only','display_name','enabled'}
+_BINDING = {'binding_id','source_id','entity_id','field','capability','profile_id','required','freshness_ttl_seconds','consumer_ids','fallback','read_only','display_name','enabled','device_id','device_overrides'}
+_DEVICE = {'device_id','source_cadence','expected_interval_s','liveness_entity','cadence_provenance'}
 _FUSION = {'fusion_id','contract_id','field','input_binding_ids','input_fusion_ids','strategy','consumer_ids'}
 _INSTANCE = {'contract_id','schema_id','schema_version','profile','display_name','metadata'}
 
@@ -48,8 +50,12 @@ def decode_document(document, profile):
     if document.get('format') != FORMAT or type(document.get('format_version')) is not int or document['format_version'] != FORMAT_VERSION:
         raise RegistryValidationError('unsupported import format/version')
     data = document.get('payload')
-    _object(data, {'profile','schema_version','bindings','fusions','contract_instances','consumer_overrides','registry_metadata'}, 'payload')
-    if data.get('profile') != profile or type(data.get('schema_version')) is not int or data['schema_version'] != 1:
+    schema_version = data.get('schema_version')
+    payload_fields = {'profile','schema_version','bindings','fusions','contract_instances','consumer_overrides','registry_metadata'}
+    if schema_version == 2:
+        payload_fields.add('devices')
+    _object(data, payload_fields, 'payload')
+    if data.get('profile') != profile or type(schema_version) is not int or schema_version not in SUPPORTED_REGISTRY_SCHEMA_VERSIONS:
         raise RegistryValidationError('unsupported registry schema or profile mismatch')
     _safe(data)
     for name, fields in (('bindings', _BINDING), ('fusions', _FUSION), ('contract_instances', _INSTANCE)):
@@ -66,11 +72,20 @@ def decode_document(document, profile):
                 if type(item.get('freshness_ttl_seconds')) is not int:
                     raise RegistryValidationError('TTL must be an integer')
                 _object(item.get('fallback'), {'action','default_value','reason'}, 'fallback')
+                if 'device_overrides' in item:
+                    _object(item['device_overrides'], {'source_cadence','expected_interval_s','liveness_entity'}, 'device_overrides')
             if name == 'contract_instances' and item.get('profile',profile) != profile:
                 raise RegistryValidationError('contract profile mismatch')
             for key in ('input_binding_ids','input_fusion_ids','consumer_ids'):
                 if key in item and (not isinstance(item[key], list) or any(not isinstance(x,str) for x in item[key])):
                     raise RegistryValidationError(f'{key} must be an array of IDs')
+    if schema_version == 2:
+        if not isinstance(data.get('devices'), list):
+            raise RegistryValidationError('devices must be an array')
+        for item in data['devices']:
+            _object(item, _DEVICE, 'devices')
+            if 'cadence_provenance' in item:
+                _object(item['cadence_provenance'], {'kind','label_id'}, 'cadence_provenance')
     try:
         return RegistryPayload.from_dict(data)
     except (ValueError, KeyError, TypeError) as err:

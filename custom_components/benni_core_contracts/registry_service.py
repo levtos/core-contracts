@@ -20,7 +20,8 @@ from uuid import uuid4
 
 from .contracts import default_schema_registry
 from .graph import SignalGraph
-from .models import Fusion, ProfileId, SourceBinding
+from .const import REGISTRY_SCHEMA_VERSION
+from .models import Device, Fusion, ProfileId, SourceBinding
 from .quality import utc_now
 from .registry import (
     ConcurrencyConflict,
@@ -605,7 +606,9 @@ class RegistryDomainService:
                 )
             base_revision = 0
             base_revision_id = None
-            payload = RegistryPayload(profile=profile_id)
+            payload = RegistryPayload(
+                profile=profile_id, schema_version=REGISTRY_SCHEMA_VERSION
+            )
         else:
             base_revision = active.revision
             base_revision_id = active.id
@@ -850,6 +853,97 @@ class RegistryDomainService:
         return await self.async_validate_draft(draft_id, actor_id=actor_id)
 
     @staticmethod
+    def _device_payload(draft: RegistryDraft, **changes: Any) -> RegistryPayload:
+        """Upgrade only an explicit device-model edit from legacy v1 to v2."""
+
+        return replace(
+            draft.payload,
+            schema_version=REGISTRY_SCHEMA_VERSION,
+            **changes,
+        )
+
+    async def async_create_device(
+        self,
+        draft_id: str,
+        device: Device | Mapping[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> RegistryDraft:
+        draft = await self.async_get_draft(draft_id, actor_id=actor_id)
+        try:
+            value = device if isinstance(device, Device) else Device.from_dict(device)
+        except (KeyError, TypeError, ValueError) as err:
+            raise RegistryServiceError(str(err), code="validation_error") from err
+        if any(item.device_id == value.device_id for item in draft.payload.devices):
+            raise InvalidReferenceError("device ID is already used in this draft")
+        payload = self._device_payload(
+            draft, devices=draft.payload.devices + (value,)
+        )
+        return await self._replace_draft_payload(draft, payload, actor_id=actor_id)
+
+    async def async_update_device(
+        self,
+        draft_id: str,
+        device_id: str,
+        changes: Device | Mapping[str, Any],
+        *,
+        actor_id: str | None = None,
+    ) -> RegistryDraft:
+        draft = await self.async_get_draft(draft_id, actor_id=actor_id)
+        current = next(
+            (item for item in draft.payload.devices if item.device_id == device_id), None
+        )
+        if current is None:
+            raise InvalidReferenceError("device does not exist in this draft")
+        if isinstance(changes, Device):
+            updated = changes
+        else:
+            data = current.as_dict()
+            data.update(dict(changes))
+            try:
+                updated = Device.from_dict(data)
+            except (KeyError, TypeError, ValueError) as err:
+                raise RegistryServiceError(str(err), code="validation_error") from err
+        if updated.device_id != device_id:
+            raise InvalidReferenceError("device_id is stable and cannot be changed")
+        payload = self._device_payload(
+            draft,
+            devices=tuple(
+                updated if item.device_id == device_id else item
+                for item in draft.payload.devices
+            ),
+        )
+        return await self._replace_draft_payload(draft, payload, actor_id=actor_id)
+
+    async def async_delete_device(
+        self,
+        draft_id: str,
+        device_id: str,
+        *,
+        actor_id: str | None = None,
+    ) -> RegistryDraft:
+        draft = await self.async_get_draft(draft_id, actor_id=actor_id)
+        if not any(item.device_id == device_id for item in draft.payload.devices):
+            raise InvalidReferenceError("device does not exist in this draft")
+        references = [
+            binding.binding_id
+            for binding in draft.payload.bindings
+            if binding.device_id == device_id
+        ]
+        if references:
+            raise InvalidReferenceError(
+                "device is still referenced by bindings",
+                details={"device_id": device_id, "binding_ids": references},
+            )
+        payload = self._device_payload(
+            draft,
+            devices=tuple(
+                item for item in draft.payload.devices if item.device_id != device_id
+            ),
+        )
+        return await self._replace_draft_payload(draft, payload, actor_id=actor_id)
+
+    @staticmethod
     def _binding_from_input(
         binding: SourceBinding | Mapping[str, Any],
         *,
@@ -902,6 +996,8 @@ class RegistryDomainService:
             draft.payload,
             bindings=draft.payload.bindings + (new_binding,),
         )
+        if new_binding.device_id is not None or new_binding.device_overrides.values:
+            payload = replace(payload, schema_version=REGISTRY_SCHEMA_VERSION)
         return await self._replace_draft_payload(draft, payload, actor_id=actor_id)
 
     async def create_binding(
@@ -999,6 +1095,8 @@ class RegistryDomainService:
                 for item in draft.payload.bindings
             ),
         )
+        if updated_binding.device_id is not None or updated_binding.device_overrides.values:
+            payload = replace(payload, schema_version=REGISTRY_SCHEMA_VERSION)
         return await self._replace_draft_payload(draft, payload, actor_id=actor_id)
 
     async def update_binding(

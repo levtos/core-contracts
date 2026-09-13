@@ -11,6 +11,7 @@ export type FreshnessStatus = "fresh" | "suspect" | "stale" | "unknown" | "resto
 export type SafetyStatus = "valid" | "conservative" | "unsafe" | "blocked" | "unknown";
 export type ValueState = "valid" | "unknown" | "unavailable" | "blocked" | "invalid";
 export type FallbackAction = "none" | "hold_last" | "safe_default" | "reject";
+export type SourceCadence = "periodic" | "event_based" | "unknown";
 
 export interface QualityReason {
   code: string;
@@ -100,6 +101,12 @@ export interface SourceBinding {
   consumer_ids: string[];
   fallback: { action: FallbackAction; default_value: unknown; reason: string };
   read_only: boolean;
+  device_id?: string;
+  device_overrides?: {
+    source_cadence?: SourceCadence;
+    expected_interval_s?: number | null;
+    liveness_entity?: string | null;
+  };
 }
 
 export interface AtomicSignal {

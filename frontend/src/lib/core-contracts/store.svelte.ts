@@ -1,6 +1,8 @@
 import { CoreContractsClient, reconcileById, reconcileContracts } from "./client";
 import { previewData } from "./fixtures";
 import { RegistryEditor, type Profile } from './registry.svelte';
+import { UxPreferences } from './preferences.svelte';
+import type { GraphMode } from './graph-focus';
 import type { ConnectionState, DataState } from "../ui/state";
 import type {
   Contract,
@@ -10,16 +12,23 @@ import type {
   HealthItem,
 } from "./types";
 
-export type AppView = "overview" | "contracts" | "sources" | "devices" | "graph" | "setup" | "changes" | "settings" | "trace";
+export type AppView = "overview" | "contracts" | "contract" | "sources" | "devices" | "graph" | "setup" | "changes" | "settings" | "trace";
 export type { ConnectionState, DataState } from "../ui/state";
 
 export class CoreContractsStore {
   registry = new RegistryEditor();
+  preferences = new UxPreferences();
   constructor() { this.registry.onActivated = () => void this.refresh(); }
   activeView = $state<AppView>("overview");
   search = $state("");
   selectedContractId = $state<string | null>(null);
   selectedField = $state<string | null>(null);
+  contractHealthFilter = $state("all");
+  contractSort = $state<"name" | "schema" | "quality">("name");
+  sourceTab = $state<"bindings" | "fusions">("bindings");
+  selectedFusionId = $state<string | null>(null);
+  graphFocus = $state("");
+  graphMode = $state<GraphMode>("current");
   contracts = $state<Contract[]>([]);
   diagnostics = $state<DiagnosticProjection[]>([]);
   graph = $state<GraphSnapshot | null>(null);
@@ -191,6 +200,7 @@ export class CoreContractsStore {
 
   setView(view: AppView): void {
     this.activeView = view;
+    this.preferences.remember(view);
     if ((view === 'sources' || view === 'devices' || view === 'changes' || view === 'settings') && !this.registry.view) void this.registry.refresh();
   }
 

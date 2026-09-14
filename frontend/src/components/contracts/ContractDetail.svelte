@@ -1,12 +1,15 @@
 <script lang="ts">
   import { Database, Eye, GitCommitHorizontal, ShieldAlert } from "@lucide/svelte";
   import type { Contract, DiagnosticProjection } from "../../lib/core-contracts/types";
+  import type { UxPreferences } from "../../lib/core-contracts/preferences.svelte";
+  import { formatRelativeDate } from "../../lib/core-contracts/preferences.svelte";
   import { formatDateTime, formatValue, labelForSchema, labelForStrategy } from "../../lib/core-contracts/format";
   import StatusBadge from "../../lib/ui/StatusBadge.svelte";
 
-  let { contract, diagnostic }: { contract: Contract; diagnostic: DiagnosticProjection | null } = $props();
+  let { contract, diagnostic, preferences }: { contract: Contract; diagnostic: DiagnosticProjection | null; preferences: UxPreferences } = $props();
   let fields = $derived(Object.keys(contract.field_quality));
   let fieldDiagnostic = (field: string) => diagnostic?.fields.find((item) => item.field === field) ?? null;
+  const when=(value:string)=>preferences.timeDisplay==='relative'?formatRelativeDate(value):preferences.timeDisplay==='exact'?formatDateTime(value):`${formatRelativeDate(value)} · ${formatDateTime(value)}`;
 </script>
 
 <div class="detail">
@@ -14,7 +17,7 @@
     <div>
       <div class="eyebrow">{labelForSchema(contract.schema_id)} · Schema v{contract.schema_version}</div>
       <h2>{contract.contract_id}</h2>
-      <p class="muted">Generiert {formatDateTime(contract.generated_at)} · Contract bleibt intern und read-only.</p>
+      <p class="muted">Generiert {when(contract.generated_at)} · Contract bleibt intern und read-only.</p>
     </div>
     <StatusBadge status={contract.health} />
   </div>

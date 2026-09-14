@@ -22,6 +22,7 @@
     scopeLabel,
     scopeHint,
     versionLabel,
+    uxClass = "",
     children,
   }: {
     activeView: string;
@@ -41,11 +42,12 @@
     scopeLabel?: string;
     scopeHint?: string;
     versionLabel?: string;
+    uxClass?: string;
     children?: Snippet;
   } = $props();
 </script>
 
-<div class="app-shell">
+<div class={`app-shell ${uxClass}`}>
   <div class="workspace">
     <TopBar
       {title}
@@ -76,6 +78,10 @@
 <style>
   .app-shell { display: flex; min-height: 100vh; background: radial-gradient(circle at top right, var(--color-surface-elevated), transparent 36%), var(--color-background); }
   .workspace { display: flex; flex: 1; min-width: 0; flex-direction: column; }
+  .app-shell.text-large { font-size: 112.5%; } .app-shell.text-xlarge { font-size: 125%; }
+  .app-shell.density-compact :global(.content) { --space-6:16px; --space-4:12px; --space-3:8px; }
+  .app-shell.density-compact :global(article) { padding-block:var(--space-2); }
+  .app-shell.motion-reduce, .app-shell.motion-reduce :global(*) { scroll-behavior:auto!important; animation:none!important; transition:none!important; }
   .module-nav { display:flex; gap:var(--space-2); overflow-x:auto; padding:0 var(--space-8) var(--space-4); border-bottom:1px solid var(--color-border); scrollbar-width:thin; }
   .module-nav button { display:flex; flex:0 0 auto; align-items:center; gap:var(--space-2); min-height:44px; padding:0 var(--space-3); border:1px solid transparent; border-radius:var(--radius-control); background:transparent; color:var(--color-text-secondary); }
   .module-nav button:hover { border-color:var(--color-border); color:var(--color-text-primary); }

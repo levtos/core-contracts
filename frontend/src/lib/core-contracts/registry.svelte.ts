@@ -1,4 +1,5 @@
 import type { HassLike, SourceBinding, Fusion, SourceCadence } from './types';
+import { buildDraftDiff, type DraftChange } from './draft-diff';
 
 export type Profile = 'benni' | 'eltern';
 export interface EditableBinding extends SourceBinding { display_name?: string; enabled?: boolean }
@@ -74,6 +75,17 @@ export class RegistryEditor {
   get fusionDirty() { return this.fusionEditor !== null && JSON.stringify(this.fusionEditor) !== JSON.stringify(this.originalFusion); }
   get instanceDirty() { return this.instanceEditor !== null && JSON.stringify(this.instanceEditor) !== JSON.stringify(this.originalInstance); }
   get dirty() { return this.changed || this.instanceDirty || this.fusionDirty || !!this.fallbackError || (this.editor !== null && JSON.stringify(this.editor) !== JSON.stringify(this.original)); }
+  get diffEntries(): DraftChange[] | null {
+    const base=this.view?.registry.revision?.payload;
+    if(!base)return null;
+    const current=copy(this.draft?.payload??base);
+    const upsert=(collection: Record<string,unknown>[],item:Record<string,unknown>|null,idKey:string)=>{if(!item)return;const index=collection.findIndex(value=>value[idKey]===item[idKey]);if(index>=0)collection[index]=copy(item);else collection.push(copy(item));};
+    if(this.editor&&JSON.stringify(this.editor)!==JSON.stringify(this.original))upsert(current.bindings as unknown as Record<string,unknown>[],this.editor as unknown as Record<string,unknown>,'binding_id');
+    if(this.fusionEditor&&this.fusionDirty)upsert(current.fusions as unknown as Record<string,unknown>[],this.fusionEditor as unknown as Record<string,unknown>,'fusion_id');
+    if(this.instanceEditor&&this.instanceDirty)upsert(current.contract_instances,this.instanceEditor,'contract_id');
+    return buildDraftDiff(base as unknown as Parameters<typeof buildDraftDiff>[0],current as unknown as Parameters<typeof buildDraftDiff>[1]);
+  }
+  get changeCount(){return this.diffEntries?.length??null;}
   get fusions() { return this.draft?.payload.fusions ?? this.view?.registry.revision?.payload.fusions ?? []; }
   get instances() { return this.draft?.payload.contract_instances ?? this.view?.registry.revision?.payload.contract_instances ?? []; }
   get bindings() { return this.draft?.payload.bindings ?? this.view?.registry.revision?.payload.bindings ?? []; }

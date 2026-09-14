@@ -44,7 +44,7 @@
         </div>
       </Panel>
       <Panel eyebrow="Feld-Contract" title="Detail">
-        {#if selected}<ContractDetail contract={selected} diagnostic={selectedDiagnostic} />{:else}<EmptyState title="Contract auswählen" message="Wähle links einen Contract für die feldbezogene Darstellung." />{/if}
+        {#if selected}<ContractDetail contract={selected} diagnostic={selectedDiagnostic} preferences={store.preferences} />{:else}<EmptyState title="Contract auswählen" message="Wähle links einen Contract für die feldbezogene Darstellung." />{/if}
       </Panel>
     </div>
   {/if}

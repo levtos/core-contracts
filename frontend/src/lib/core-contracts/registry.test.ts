@@ -198,4 +198,12 @@ describe('Registry UI lifecycle', () => {
     expect(editor.draft).toBeNull(); editor.openCandidate('media_player.sonos');
     expect(editor.editor?.entity_id).toBe('media_player.sonos'); expect(editor.editor?.field).toBe(''); expect(editor.editor?.capability).toBe(''); expect(calls).toHaveLength(0);
   });
+  it('updates the visible draft count for zero, one, multiple and removed changes',async()=>{
+    const {editor}=fixture();await editor.refresh();expect(editor.changeCount).toBe(0);
+    enter(editor);expect(editor.changeCount).toBe(1);await editor.apply();expect(editor.changeCount).toBe(1);
+    await editor.save();expect(editor.changeCount).toBe(0);
+    editor.select(editor.bindings[0]);editor.editor!.entity_id='media_player.replacement';editor.editor!.display_name='Neuer Name';
+    expect(editor.changeCount).toBe(2);await editor.apply();expect(editor.changeCount).toBe(2);
+    await editor.remove(editor.bindings[0]);expect(editor.changeCount).toBe(1);
+  });
 });

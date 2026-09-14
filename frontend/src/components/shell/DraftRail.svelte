@@ -3,14 +3,14 @@
   import type { CoreContractsStore } from "../../lib/core-contracts/store.svelte";
   let { store, onOpen }: { store: CoreContractsStore; onOpen: () => void } = $props();
   let revision = $derived(store.registry.view?.registry.revision?.revision ?? (store.revision || "—"));
-  let changes = $derived(store.registry.dirty ? 1 : 0);
+  let changes = $derived(store.registry.changeCount);
 </script>
 
 <section class="draft-rail" aria-label="Versions- und Entwurfsstatus" aria-live="polite">
   <div><CircleDot size={16} aria-hidden="true" /><span>Aktive Version</span><strong>{revision}</strong></div>
-  <div class:attention={changes > 0}><FilePenLine size={16} aria-hidden="true" /><span>Entwurf</span><strong>{changes ? `${changes} Änderung` : "Keiner"}</strong></div>
+  <div class:attention={(changes??0) > 0}><FilePenLine size={16} aria-hidden="true" /><span>Entwurf</span><strong>{changes===null ? "Wird geladen …" : changes ? `${changes} Änderungen` : "Keiner"}</strong></div>
   <div><CheckCircle2 size={16} aria-hidden="true" /><span>Prüfung</span><strong>{store.registry.validation ? (store.registry.validation.valid ? "Erfolgreich" : "Fehler") : "Ausstehend"}</strong></div>
-  <button type="button" onclick={onOpen}>{changes ? "Prüfen → Speichern → Aktivieren" : "Versionen öffnen"}</button>
+  <button type="button" onclick={onOpen}>{(changes??0)>0 ? "Prüfen → Speichern → Aktivieren" : "Versionen öffnen"}</button>
 </section>
 
 <style>

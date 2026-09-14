@@ -20,6 +20,7 @@ export interface DeviceProposal {
     options:{source_cadence:SourceCadence;evidence:{label_id:string;label_name:string;origin:string}[]}[]};
   liveness_candidates:{entity_id:string;disabled:boolean;origin:string}[];
   suggested_liveness_entity:string|null; requires_liveness_selection:boolean;
+  expected_interval_defaults:Partial<Record<SourceCadence,{seconds:number;provisional:boolean}>>;
 }
 export interface Revision { id: string; revision: number; profile: Profile; status: string; created_at: string; payload: RegistryPayload }
 export interface Draft { draft_id: string; profile: Profile; base_revision: number; payload: RegistryPayload }
@@ -148,8 +149,18 @@ export class RegistryEditor {
     this.deviceProposal=response.result;
     this.selectedCadence=response.result.cadence.conflict ? '' : (response.result.cadence.suggested_source_cadence ?? '');
     this.selectedLiveness=response.result.requires_liveness_selection ? '' : (response.result.suggested_liveness_entity ?? '');
-    this.selectedExpectedInterval=this.devices.find(item=>item.device_id===response.result.device_id)?.expected_interval_s ?? null;
+    const existing=this.devices.find(item=>item.device_id===response.result.device_id)?.expected_interval_s;
+    const suggested=this.selectedCadence ? response.result.expected_interval_defaults[this.selectedCadence]?.seconds : undefined;
+    this.selectedExpectedInterval=existing ?? suggested ?? null;
   }); }
+  selectCadence(value:SourceCadence|'') {
+    this.selectedCadence=value;
+    if (value && this.deviceProposal) {
+      this.selectedExpectedInterval=this.deviceProposal.expected_interval_defaults[value]?.seconds ?? null;
+    } else {
+      this.selectedExpectedInterval=null;
+    }
+  }
   async confirmDevice() { await this.run(async()=>{
     const proposal=this.deviceProposal;
     if (!this.editor || !proposal?.device_id) throw new RegistryError('validation_error','Keine HA-Gerätezuordnung vorhanden.');

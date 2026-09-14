@@ -12,7 +12,7 @@ or a lock state that is not part of a v1 public contract.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from enum import Enum
 from typing import Any, Iterable
@@ -22,6 +22,7 @@ from .quality import (
     FallbackAction,
     FallbackPolicy,
     FreshnessOrigin,
+    FreshnessAssessment,
     FreshnessRequirement,
     FreshnessStatus,
     SafetyClass,
@@ -323,9 +324,10 @@ class BindingEvidenceAssessment:
     accepted: bool
     activation_allowed: bool
     reason: str
+    freshness_assessment: FreshnessAssessment | None = None
 
     def as_dict(self) -> dict[str, Any]:
-        return {
+        data = {
             "binding_id": self.binding_id,
             "source_entity": self.source_entity,
             "freshness": self.freshness.value,
@@ -333,6 +335,9 @@ class BindingEvidenceAssessment:
             "activation_allowed": self.activation_allowed,
             "reason": self.reason,
         }
+        if self.freshness_assessment is not None:
+            data["freshness_assessment"] = self.freshness_assessment.as_dict()
+        return data
 
 
 def assess_source_binding_evidence(
@@ -341,6 +346,7 @@ def assess_source_binding_evidence(
     *,
     now: datetime,
     ttl_seconds: int,
+    freshness_assessment: FreshnessAssessment | None = None,
 ) -> BindingEvidenceAssessment:
     """Evaluate one source event without activating or publishing it.
 
@@ -350,6 +356,20 @@ def assess_source_binding_evidence(
     retained/restore replay.
     """
 
+    def hard_assessment(
+        freshness: FreshnessStatus,
+        reason: str,
+    ) -> FreshnessAssessment | None:
+        return (
+            replace(
+                freshness_assessment,
+                freshness=freshness,
+                reason=reason,
+            )
+            if freshness_assessment is not None
+            else None
+        )
+
     if evidence is None or record.source_entity is None:
         return BindingEvidenceAssessment(
             binding_id=record.binding_id,
@@ -358,6 +378,10 @@ def assess_source_binding_evidence(
             accepted=False,
             activation_allowed=False,
             reason="source_unavailable",
+            freshness_assessment=hard_assessment(
+                FreshnessStatus.UNKNOWN,
+                "source_unavailable",
+            ),
         )
 
     if evidence.origin == FreshnessOrigin.RETAINED_MQTT or evidence.retained:
@@ -373,6 +397,7 @@ def assess_source_binding_evidence(
             accepted=False,
             activation_allowed=False,
             reason="source_retained",
+            freshness_assessment=hard_assessment(freshness, "source_retained"),
         )
 
     if evidence.origin == FreshnessOrigin.RESTORE or evidence.restored:
@@ -388,6 +413,7 @@ def assess_source_binding_evidence(
             accepted=False,
             activation_allowed=False,
             reason="source_restored",
+            freshness_assessment=hard_assessment(freshness, "source_restored"),
         )
 
     if evidence.origin not in record.allowed_freshness_origins:
@@ -398,6 +424,10 @@ def assess_source_binding_evidence(
             accepted=False,
             activation_allowed=False,
             reason="source_freshness_origin_not_allowed",
+            freshness_assessment=hard_assessment(
+                FreshnessStatus.UNKNOWN,
+                "source_freshness_origin_not_allowed",
+            ),
         )
 
     if evidence.origin == FreshnessOrigin.DEVICE_TIMESTAMP:
@@ -409,6 +439,10 @@ def assess_source_binding_evidence(
                 accepted=False,
                 activation_allowed=False,
                 reason="device_timestamp_not_evidenced",
+                freshness_assessment=hard_assessment(
+                    FreshnessStatus.UNKNOWN,
+                    "device_timestamp_not_evidenced",
+                ),
             )
     if evidence.origin == FreshnessOrigin.HA_TIMESTAMP:
         if record.ha_state_change_usable is not True or not evidence.ha_state_event:
@@ -419,6 +453,10 @@ def assess_source_binding_evidence(
                 accepted=False,
                 activation_allowed=False,
                 reason="ha_state_change_not_evidenced",
+                freshness_assessment=hard_assessment(
+                    FreshnessStatus.UNKNOWN,
+                    "ha_state_change_not_evidenced",
+                ),
             )
 
     requirement = (
@@ -426,11 +464,15 @@ def assess_source_binding_evidence(
         if record.allowed_freshness_origins == (FreshnessOrigin.DEVICE_TIMESTAMP,)
         else FreshnessRequirement.DEVICE_OR_HA_EVENT
     )
-    freshness, freshness_reason = evidence.freshness(
-        now,
-        ttl_seconds=ttl_seconds,
-        requirement=requirement,
-    )
+    if freshness_assessment is None:
+        freshness, freshness_reason = evidence.freshness(
+            now,
+            ttl_seconds=ttl_seconds,
+            requirement=requirement,
+        )
+    else:
+        freshness = freshness_assessment.freshness
+        freshness_reason = freshness_assessment.reason
     if freshness != FreshnessStatus.FRESH:
         return BindingEvidenceAssessment(
             binding_id=record.binding_id,
@@ -439,6 +481,7 @@ def assess_source_binding_evidence(
             accepted=False,
             activation_allowed=False,
             reason=freshness_reason or "source_not_fresh",
+            freshness_assessment=freshness_assessment,
         )
 
     if record.disposition == BindingDisposition.CONFLICT:
@@ -453,6 +496,7 @@ def assess_source_binding_evidence(
             accepted=True,
             activation_allowed=False,
             reason="evidence_valid_not_activated",
+            freshness_assessment=freshness_assessment,
         )
     return BindingEvidenceAssessment(
         binding_id=record.binding_id,
@@ -461,6 +505,7 @@ def assess_source_binding_evidence(
         accepted=False,
         activation_allowed=False,
         reason=reason,
+        freshness_assessment=freshness_assessment,
     )
 
 

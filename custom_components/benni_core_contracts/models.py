@@ -25,6 +25,7 @@ from .const import (
 from .quality import (
     FallbackPolicy,
     FieldQuality,
+    FreshnessAssessment,
     FreshnessOrigin,
     FreshnessStatus,
     HealthStatus,
@@ -483,9 +484,10 @@ class FieldDiagnostic:
     completeness: bool
     root_causes: tuple[QualityIssue, ...]
     consumer_effect: str
+    freshness_assessment: FreshnessAssessment | None = None
 
     def as_dict(self, now: datetime | None = None) -> dict[str, Any]:
-        return {
+        data = {
             "field": self.field,
             "state": self.state.value,
             "health": self.health.value,
@@ -498,6 +500,9 @@ class FieldDiagnostic:
             "root_causes": [cause.as_dict(now) for cause in self.root_causes],
             "consumer_effect": self.consumer_effect,
         }
+        if self.freshness_assessment is not None:
+            data["freshness_assessment"] = self.freshness_assessment.as_dict(now)
+        return data
 
 
 @dataclass(frozen=True)
@@ -512,12 +517,13 @@ class DiagnosticProjection:
     generated_at: datetime
 
     def as_dict(self, now: datetime | None = None) -> dict[str, Any]:
+        reference = now or self.generated_at
         return {
             "projection_id": self.projection_id,
             "contract_id": self.contract_id,
             "schema_id": self.schema_id,
             "health": self.health.value,
-            "fields": [field.as_dict(now) for field in self.fields],
+            "fields": [field.as_dict(reference) for field in self.fields],
             "generated_at": self.generated_at.isoformat(),
         }
 

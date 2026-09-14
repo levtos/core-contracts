@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
+from .const import (
+    DEFAULT_EVENT_BASED_EXPECTED_INTERVAL_SECONDS,
+    DEFAULT_PERIODIC_EXPECTED_INTERVAL_SECONDS,
+)
 from .models import SourceCadence
 
 
@@ -23,6 +27,18 @@ CADENCE_LABEL_PRIORITY: tuple[tuple[str, SourceCadence], ...] = (
     ("plug", SourceCadence.PERIODIC),
     ("light_device", SourceCadence.PERIODIC),
 )
+
+EXPECTED_INTERVAL_DEFAULTS = {
+    SourceCadence.EVENT_BASED: DEFAULT_EVENT_BASED_EXPECTED_INTERVAL_SECONDS,
+    SourceCadence.PERIODIC: DEFAULT_PERIODIC_EXPECTED_INTERVAL_SECONDS,
+}
+
+
+def expected_interval_defaults() -> dict[str, dict[str, int | bool]]:
+    return {
+        cadence.value: {"seconds": seconds, "provisional": True}
+        for cadence, seconds in EXPECTED_INTERVAL_DEFAULTS.items()
+    }
 
 
 def cadence_proposal(labels: Iterable[Mapping[str, str]]) -> dict[str, Any]:
@@ -114,6 +130,7 @@ def device_proposal_from_registries(
             "liveness_candidates": [],
             "suggested_liveness_entity": None,
             "requires_liveness_selection": False,
+            "expected_interval_defaults": expected_interval_defaults(),
         }
     device = device_registry.async_get(device_id)
     labels = _label_records(device, label_registry) if device is not None else []
@@ -129,6 +146,7 @@ def device_proposal_from_registries(
             usable[0]["entity_id"] if len(usable) == 1 else None
         ),
         "requires_liveness_selection": len(usable) > 1,
+        "expected_interval_defaults": expected_interval_defaults(),
     }
 
 

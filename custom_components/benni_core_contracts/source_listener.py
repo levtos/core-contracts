@@ -7,7 +7,7 @@ import math
 from typing import Any
 
 from .models import RawObservation
-from .quality import FreshnessOrigin, TemporalEvidence, utc_now
+from .quality import FreshnessOrigin, LivenessEvidence, TemporalEvidence, utc_now
 from .shadow import ShadowRuntime
 
 
@@ -81,6 +81,24 @@ def observation_from_state(
     )
 
 
+def liveness_evidence_from_state(
+    entity_id: str,
+    state: Any,
+    *,
+    observed_at: datetime,
+) -> LivenessEvidence:
+    """Read a configured timestamp entity without treating receipt as liveness."""
+
+    raw_state = getattr(state, "state", None)
+    state_text = str(raw_state) if raw_state is not None else None
+    return LivenessEvidence(
+        entity_id=entity_id,
+        observed_at=observed_at,
+        timestamp=_as_datetime(raw_state),
+        state=state_text,
+    )
+
+
 async def async_attach_source_listeners(hass: Any, runtime: ShadowRuntime) -> None:
     """Subscribe to state updates only; no entity or service API is touched."""
 
@@ -125,6 +143,45 @@ async def async_attach_source_listeners(hass: Any, runtime: ShadowRuntime) -> No
                     state_event=False,
                     value_type=runtime.graph.source_value_type(binding),
                 ),
+            )
+            refresh = getattr(runtime, "refresh_published_contracts", None)
+            if refresh is not None:
+                refresh()
+
+    for entity_id in runtime.graph.liveness_entities():
+
+        async def handle_liveness_event(
+            event: Any,
+            current_entity_id=entity_id,
+            expected_graph=runtime.graph,
+        ) -> None:
+            if runtime.graph is not expected_graph:
+                return
+            runtime.graph.update_liveness(
+                liveness_evidence_from_state(
+                    current_entity_id,
+                    event.data.get("new_state"),
+                    observed_at=getattr(event, "time_fired", None) or utc_now(),
+                )
+            )
+            refresh = getattr(runtime, "refresh_published_contracts", None)
+            if refresh is not None:
+                refresh()
+
+        unsubscribe = async_track_state_change_event(
+            hass,
+            [entity_id],
+            handle_liveness_event,
+        )
+        runtime.add_unsubscribe(unsubscribe)
+        current_state = hass.states.get(entity_id)
+        if current_state is not None:
+            runtime.graph.update_liveness(
+                liveness_evidence_from_state(
+                    entity_id,
+                    current_state,
+                    observed_at=utc_now(),
+                )
             )
             refresh = getattr(runtime, "refresh_published_contracts", None)
             if refresh is not None:

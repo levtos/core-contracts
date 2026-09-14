@@ -12,6 +12,28 @@ export type SafetyStatus = "valid" | "conservative" | "unsafe" | "blocked" | "un
 export type ValueState = "valid" | "unknown" | "unavailable" | "blocked" | "invalid";
 export type FallbackAction = "none" | "hold_last" | "safe_default" | "reject";
 export type SourceCadence = "periodic" | "event_based" | "unknown";
+export type LivenessStatus = "not_applicable" | "alive" | "overdue" | "unknown";
+
+export interface FreshnessAssessment {
+  status: FreshnessStatus;
+  reason: string | null;
+  basis: "ttl" | "device_liveness";
+  cadence: SourceCadence;
+  cadence_source: "binding_override" | "device" | "legacy_unknown";
+  cadence_provenance: string | null;
+  value_timestamp: string | null;
+  value_timestamp_origin: string;
+  value_age_seconds: number | null;
+  ttl_seconds: number;
+  expected_interval_s: number | null;
+  liveness_configured: boolean;
+  liveness_entity: string | null;
+  liveness_status: LivenessStatus;
+  liveness_timestamp: string | null;
+  liveness_age_seconds: number | null;
+  plausibility_reason: string | null;
+  shared_binding_count: number;
+}
 
 export interface QualityReason {
   code: string;
@@ -32,6 +54,7 @@ export interface FieldQuality {
   quality: QualityStatus;
   last_real_change: string | null;
   reasons: QualityReason[];
+  freshness_assessment?: FreshnessAssessment;
 }
 
 export interface FieldEvaluation {
@@ -75,6 +98,7 @@ export interface DiagnosticField {
   completeness: boolean;
   root_causes: QualityReason[];
   consumer_effect: string;
+  freshness_assessment?: FreshnessAssessment;
 }
 
 export interface DiagnosticProjection {

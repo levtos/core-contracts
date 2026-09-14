@@ -533,6 +533,7 @@ def validate_registry_payload(
             registry=schema_registry or default_schema_registry(),
             profile=normalized.profile,
             binding_configuration=True,
+            devices=normalized.devices,
         )
         for binding in normalized.bindings:
             graph.add_binding(binding)

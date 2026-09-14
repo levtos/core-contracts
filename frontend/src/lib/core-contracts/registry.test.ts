@@ -26,7 +26,8 @@ function fixture(admin = true) {
         options:[{source_cadence:'event_based',evidence:[{label_id:'contact',label_name:'contact_sensor',origin:'aus Label contact_sensor'}]},
           {source_cadence:'periodic',evidence:[{label_id:'plug',label_name:'plug',origin:'aus Label plug'}]}]},
       liveness_candidates:[{entity_id:'sensor.last_seen',disabled:false,origin:'Geschwister-Entity mit device_class timestamp'}],
-      suggested_liveness_entity:'sensor.last_seen',requires_liveness_selection:false} satisfies DeviceProposal};
+      suggested_liveness_entity:'sensor.last_seen',requires_liveness_selection:false,
+      expected_interval_defaults:{event_based:{seconds:172800,provisional:true},periodic:{seconds:3600,provisional:true}}} satisfies DeviceProposal};
     else if (cmd === 'draft/create') { draft = {draft_id:'draft', profile, base_revision: view.registry.revision!.revision, payload: clone(view.registry.revision!.payload)}; result = {draft}; }
     else if (cmd === 'binding/create') { draft.payload.bindings.push(clone(msg.binding as EditableBinding)); result = {draft}; }
     else if (cmd === 'binding/update') { draft.payload.bindings = draft.payload.bindings.map(b => b.binding_id === msg.binding_id ? clone(msg.binding as EditableBinding) : b); result = {draft}; }
@@ -104,8 +105,8 @@ describe('Registry UI lifecycle', () => {
     expect(editor.selectedCadence).toBe('');
     await editor.confirmDevice(); expect(editor.error?.code).toBe('validation_error');
     expect(calls.some(c=>c.type==='benni_core_contracts/registry/device/create')).toBe(false);
-    editor.selectedCadence='event_based'; await editor.confirmDevice();
-    expect(editor.devices[0]).toMatchObject({device_id:'device-1',source_cadence:'event_based',liveness_entity:'sensor.last_seen'});
+    editor.selectCadence('event_based'); await editor.confirmDevice();
+    expect(editor.devices[0]).toMatchObject({device_id:'device-1',source_cadence:'event_based',expected_interval_s:172800,liveness_entity:'sensor.last_seen'});
     expect(editor.editor?.device_id).toBe('device-1');
     expect(calls.some(c=>c.type==='benni_core_contracts/registry/draft/save')).toBe(false);
   });

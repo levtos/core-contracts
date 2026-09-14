@@ -16,6 +16,7 @@ from .evidence_gate import EvidenceGateStatus, evaluate_contract_evidence
 from .models import ProfileId, PublishedContract, SourceBinding
 from .quality import (
     FreshnessStatus,
+    FreshnessAssessment,
     HealthStatus,
     QualityStatus,
     SafetyClass,
@@ -521,6 +522,7 @@ def verify_benni_shadow_contract(
     source_observations: Mapping[str, ShadowSourceObservation],
     now: datetime,
     profile_id: ProfileId = ProfileId.BENNI,
+    freshness_assessments: Mapping[str, FreshnessAssessment] | None = None,
 ) -> ShadowContractVerification:
     """Verify one Benni contract against explicitly supplied source evidence.
 
@@ -532,6 +534,7 @@ def verify_benni_shadow_contract(
     if profile_id != ProfileId.BENNI:
         raise ValueError("parent_future is outside the Benni shadow gate")
     bindings = _source_bindings_by_id(source_bindings)
+    freshness_assessments = freshness_assessments or {}
     if contract.schema_id != schema.schema_id or contract.schema_version != schema.version:
         raise ValueError("contract and shadow schema do not match")
     gate = evaluate_contract_evidence(contract, schema)
@@ -576,12 +579,30 @@ def verify_benni_shadow_contract(
                 freshness = FreshnessStatus.UNKNOWN
                 reason = "source_evidence_unavailable"
             else:
-                freshness, freshness_reason = observation.evidence.freshness(
-                    now,
-                    field_schema.freshness_ttl_seconds,
-                    field_schema.freshness_requirement,
+                observation_binding_id = observation.attributes.get("binding_id")
+                matching_binding_ids = tuple(
+                    binding_id
+                    for binding_id in binding_ids
+                    if binding_id in bindings
+                    and bindings[binding_id].entity_id == observation.source_entity
                 )
-                reason = _freshness_reason(freshness) or freshness_reason
+                if observation_binding_id not in matching_binding_ids:
+                    observation_binding_id = (
+                        matching_binding_ids[0]
+                        if len(matching_binding_ids) == 1
+                        else None
+                    )
+                resolved = freshness_assessments.get(str(observation_binding_id))
+                if resolved is None:
+                    freshness, freshness_reason = observation.evidence.freshness(
+                        now,
+                        field_schema.freshness_ttl_seconds,
+                        field_schema.freshness_requirement,
+                    )
+                    reason = _freshness_reason(freshness) or freshness_reason
+                else:
+                    freshness = resolved.freshness
+                    reason = resolved.reason or _freshness_reason(freshness)
             freshness_values.append(freshness)
             if reason and reason not in reason_candidates:
                 reason_candidates.append(reason)
@@ -599,6 +620,14 @@ def verify_benni_shadow_contract(
                         "source_retained",
                         "source_stale",
                         "source_freshness_unknown",
+                        "liveness_interval_exceeded",
+                        "liveness_entity_not_configured",
+                        "liveness_evidence_unavailable",
+                        "liveness_entity_unavailable",
+                        "liveness_entity_unknown",
+                        "liveness_timestamp_invalid",
+                        "liveness_timestamp_in_future",
+                        "liveness_timestamp_implausibly_old",
                     )
                     if reason in reason_candidates
                 ),
@@ -755,6 +784,7 @@ def verify_benni_shadow_report(
     source_observations: Mapping[str, ShadowSourceObservation],
     now: datetime,
     profile_id: ProfileId = ProfileId.BENNI,
+    freshness_assessments: Mapping[str, FreshnessAssessment] | None = None,
 ) -> BenniShadowVerificationReport:
     """Verify a batch of Benni contracts without activating their sources."""
 
@@ -769,6 +799,7 @@ def verify_benni_shadow_report(
             source_observations=source_observations,
             now=now,
             profile_id=profile_id,
+            freshness_assessments=freshness_assessments,
         )
         for contract in contracts
     )
@@ -796,6 +827,7 @@ def verify_evidence_only_binding(
     source_ownership_verified: bool = False,
     value: Any = UNKNOWN_VALUE,
     ttl_seconds: int = 900,
+    freshness_assessment: FreshnessAssessment | None = None,
 ) -> ShadowEvidenceOnlyVerification:
     """Verify Lock/Cover evidence without making it a Contract or Entity."""
 
@@ -808,6 +840,7 @@ def verify_evidence_only_binding(
         evidence,
         now=now,
         ttl_seconds=ttl_seconds,
+        freshness_assessment=freshness_assessment,
     )
     reasons: list[str] = [assessment.reason]
     if record.disposition == BindingDisposition.CONFLICT:

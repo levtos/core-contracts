@@ -13,6 +13,14 @@ enthalten SourceBindings, Fusionen, Contract-Instanzen und Metadaten. ConfigEntr
 bleibt Bootstrap; Last Known Good (LKG) hält die letzte gültige Konfiguration
 bei einem Datenbankausfall verfügbar. LKG ist keine frische Messung.
 
+Geräte können eine bestätigte Meldekadenz (`periodic`, `event_based` oder
+`unknown`), ein erwartetes Intervall und eine Timestamp-Liveness-Entity tragen.
+Bindings erben diese Werte oder überschreiben sie ausdrücklich. Periodische und
+Legacy-Quellen verwenden weiterhin die Feld-TTL; eventbasierte Quellen behalten
+ihren letzten Ereigniswert nur dann als verwendbar, wenn die getrennte
+Liveness-Evidenz das Gerät als lebendig ausweist. Details stehen in
+[Device Registry Cadence v1](docs/device-registry-cadence-v1.md).
+
 Ein SourceBinding verbindet eine stabile technische ID und Rolle mit einer
 konkreten HA-Entity. Beim Gerätewechsel von HomePod zu Sonos ändert der Benutzer
 die Entity, nicht die logische ID oder Consumer-Konfiguration. Anzeigenamen sind
@@ -59,7 +67,8 @@ Live-State, Freshness, Discovery und Health schreiben keine Registry-Konfigurati
 ## Diagnose, Reparatur und Transfer
 
 Die feldbezogene Diagnose zeigt Wert, Quality/Freshness/Safety, Ursache, Quellen,
-Fallback, Degradierungsdauer, Consumer Impact und Registry-Revision. **Binding
+Kadenz und Herkunft, Wert- und Liveness-Zeitstempel, Plausibilisierung,
+gleichartig konfigurierte Bindings, Fallback, Degradierungsdauer, Consumer Impact und Registry-Revision. **Binding
 bearbeiten** öffnet genau das betroffene Binding. Erst explizites Speichern
 aktiviert die Reparatur; ein ungültiger Repair lässt die aktive Registry intakt.
 
@@ -92,11 +101,13 @@ Benni-Quellen begrenzt. Der interne Betriebsmodus `shadow_only` bedeutet weiterh
 - [Registry-Storage](docs/registry-storage-v1.md) und [Domain-Service](docs/registry-service-v1.md)
 - [Consumer API mit Testconsumer-Vorlage](docs/consumer-api-v1.md)
 - [Registry-UX](docs/registry-ux-v1.md), [Fusion-Editor](docs/fusion-editor-v1.md)
+- [Device Registry und Kadenz](docs/device-registry-cadence-v1.md)
 - [Import/Export](docs/registry-import-export-v1.md), [Diagnose → Repair](docs/diagnostic-repair-v1.md)
 - [Release Notes 0.2.0](docs/release-notes-0.2.0.md)
 - [TLS/Event-Loop Quickfix 0.2.1](docs/release-notes-0.2.1.md)
+- [Device Cadence und Liveness 0.2.2](docs/release-notes-0.2.2.md)
 
-Version: **0.2.1** (Foundation v1, kein SemVer-1.0-Release). Technische Tests,
+Version: **0.2.2** (Foundation v1, kein SemVer-1.0-Release). Technische Tests,
 GitHub-Release und HA-Live-Abnahme sind getrennte Gates. Installation, Reload,
 Deployment und echte HA-Verhaltensprüfung bleiben Benni vorbehalten.
 CoreState-/MediaState-/Climate-/Blind-Cutovers sind separate Aufträge.

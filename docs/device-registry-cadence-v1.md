@@ -1,9 +1,8 @@
 # Device Registry Cadence v1
 
-> **Status: unvollständiger Entwurf – nur Stufe 1.** Die Freshness-Auswertung,
-> Liveness-Plausibilisierung, Diagnostik und Laufzeitsemantik folgen erst in
-> Stufe 2. Dieses Dokument beschreibt deshalb noch kein vollständiges
-> Freshness-Verhalten.
+> **Status: Stufe 1 und Stufe 2 implementiert.** Die Registry-Revision wird
+> durch diese Änderung nicht aktiviert; vorhandene Bindings bleiben bis zu
+> einer ausdrücklichen Registry-Änderung unverändert.
 
 ## Datenmodell
 
@@ -44,6 +43,55 @@ desselben HA-Geräts mit `device_class: timestamp` angeboten. Genau ein Kandidat
 kann vorgeschlagen werden; bei mehreren Kandidaten bleibt die Auswahl leer und
 muss ausdrücklich erfolgen. Vorschlagsabfragen verändern keinen Entwurf.
 
+## Laufzeitauflösung und Defaults
+
+Die Laufzeit löst Kadenz, Intervall und Liveness-Entity in dieser Reihenfolge
+auf: Binding-Override, bestätigtes Device, Legacy/`unknown`. Die vorläufigen,
+änderbaren Defaults sind 172800 Sekunden für `event_based` und 3600 Sekunden
+für `periodic`; die UX kennzeichnet sie als vorläufig.
+
+## Freshness- und Liveness-Auswertung
+
+`periodic` und Legacy/`unknown` vergleichen wie bisher das Alter des effektiven
+Wert-Zeitstempels mit `freshness_ttl_seconds`. Für `event_based` gilt keine
+Altersgrenze auf den Wert. Stattdessen entscheidet eine konfigurierte
+Liveness-Entity, ob das Gerät innerhalb von `expected_interval_s` kommuniziert
+hat.
+
+Die Liveness-Auswertung kennt vier Zustände:
+
+- `alive`: plausibler Liveness-Zeitstempel innerhalb des Intervalls; der alte
+  Ereigniswert ist verwendbar.
+- `overdue`: plausibler Zeitstempel ist älter als das Intervall, aber höchstens
+  zehn Intervalle alt; der Wert ist `stale`.
+- `unknown`: keine Entity oder kein Intervall, `unknown`/`unavailable`, ein
+  Zeitstempel in der Zukunft oder ein mehr als zehn Intervalle alter
+  Zeitstempel; dies ist weder frisch noch bewiesen veraltet.
+- `not_applicable`: keine eventbasierte Auswertung.
+
+Der dritte Fall wird als Zusatzfeld `liveness_status=unknown` in einer
+strukturierten `FreshnessAssessment` dargestellt. Das bestehende
+`FreshnessStatus`-Enum bleibt unverändert. Die strukturierte Bewertung ist aus
+der Dataclass-Gleichheit ausgeschlossen, damit fortschreitende Alter und
+Diagnosedetails keine `QUALITY_CHANGED`-Ereignisse erzeugen.
+
+Restore, Retained, unerlaubte Zeitstempelherkunft und fehlender
+Zeitstempelnachweis werden vor der Liveness-Auswertung geprüft. Eine aktuelle
+Liveness-Meldung kann diese harten Gates nicht in `fresh` umwandeln. Ein
+`snapshot.stale`-Override gilt nur für `periodic` und Legacy/`unknown`, nicht
+für `event_based`.
+
+Auswahl, veröffentlichte Feldqualität, Fallback-Diagnose, Owner-Gate,
+Shadow-Verifikation und Live-Evidence verwenden dieselbe aufgelöste Bewertung.
+
+## Diagnose
+
+Die strukturierte Bewertung weist Kadenz und Herkunft, Wert-Zeitstempel samt
+Alter und Herkunft, Liveness-Konfiguration, -Status, -Zeitstempel und Alter,
+Plausibilisierungsgrund sowie die Anzahl der Bindings mit gleicher Kombination
+aus Kadenz und Intervall aus. Die Anzahl ist reine Anzeige; Vorlagen oder
+Gruppierung entstehen daraus nicht.
+
 ## Migration und Aktivierung
 
 Registry-v1-Revisionen bleiben lesbar und behalten ihre kanonische
@@ -53,6 +101,4 @@ Device-Binding-Bearbeitung hebt den betroffenen Entwurf auf Schema v2. Das
 PostgreSQL-Tabellenschema ändert sich nicht, weil der Payload als JSONB
 gespeichert wird.
 
-Diese Stufe aktiviert keine Registry-Revision und verändert keine
-Freshness-Auswertung. Weitere Produktdokumentation und README-Anpassungen sind
-absichtlich bis Stufe 2 zurückgestellt.
+Diese Änderung aktiviert keine Registry-Revision und stellt keinen Consumer um.

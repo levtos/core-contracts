@@ -74,7 +74,7 @@
                 <p><strong>{option.source_cadence}</strong>: {option.evidence.map(item => item.origin).join(', ')}</p>
               {/each}
               <label>Kadenz ausdrücklich bestätigen
-                <select bind:value={registry.selectedCadence} required>
+                <select value={registry.selectedCadence} onchange={(event)=>registry.selectCadence(event.currentTarget.value as typeof registry.selectedCadence)} required>
                   <option value="">Bitte auswählen</option>
                   <option value="event_based">event_based</option>
                   <option value="periodic">periodic</option>
@@ -92,6 +92,9 @@
               <label>Erwartetes Meldeintervall in Sekunden (optional)
                 <input type="number" min="1" step="1" value={registry.selectedExpectedInterval ?? ''} oninput={(e)=>registry.selectedExpectedInterval=e.currentTarget.value ? Number(e.currentTarget.value) : null} />
               </label>
+              {#if registry.selectedCadence && registry.deviceProposal.expected_interval_defaults[registry.selectedCadence]?.provisional}
+                <p class="warning">Vorläufiger Standard für {registry.selectedCadence}: {registry.deviceProposal.expected_interval_defaults[registry.selectedCadence]?.seconds} Sekunden. Nach Beobachtung anpassen.</p>
+              {/if}
               {#if registry.deviceProposal.requires_liveness_selection}<p class="warning">Mehrere Timestamp-Geschwister gefunden. Keine Entity ist vorbelegt; Auswahl ist erforderlich.</p>{/if}
               <button type="button" onclick={() => registry.confirmDevice()} disabled={!registry.selectedCadence || (registry.deviceProposal.requires_liveness_selection && !registry.selectedLiveness)}>Gerätewerte in Entwurf übernehmen</button>
             {/if}

@@ -75,6 +75,14 @@ widersprüchliche Evidence gilt immer:
 - `is_open=unknown`
 - kein Safe Default für einen physischen Zustand
 - `fallback=reject` für die physischen Felder
+
+Bei bestätigter Kadenz `event_based` ist ein alter Kontaktwert nicht allein
+wegen seines Alters stale. Er bleibt verwendbar, wenn eine konfigurierte,
+plausible Liveness-Entity das Gerät innerhalb von `expected_interval_s` als
+lebendig ausweist. `overdue` blockiert weiterhin; unbekannte oder unplausible
+Liveness wird als eigener unbekannter Liveness-Zustand ausgewiesen und nicht
+stillschweigend als frisch oder tot behandelt. Restore, Retained, unerlaubte
+Zeitstempelherkunft und fehlender Zeitstempelnachweis bleiben harte Gates.
 - `health=blocked` oder `degraded` und passende Quality-/Freshness-/Safety-
   Attribute
 - eine feldbezogene Diagnose mit Root Cause, statt einer positiven Aussage

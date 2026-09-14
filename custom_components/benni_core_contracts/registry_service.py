@@ -238,6 +238,7 @@ class RegistryRuntime:
             registry=self.schema_registry,
             profile=normalized.profile,
             binding_configuration=True,
+            devices=normalized.devices,
         )
         for binding in normalized.bindings:
             graph.add_binding(binding)

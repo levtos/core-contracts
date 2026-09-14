@@ -10,8 +10,14 @@ SUPPORTED_REGISTRY_SCHEMA_VERSIONS = (1, REGISTRY_SCHEMA_VERSION)
 REGISTRY_CACHE_SCHEMA_VERSION = 1
 GATE_PACK_VERSION = 1
 WEBSOCKET_PAYLOAD_VERSION = 1
-RELEASE_VERSION = "0.2.1"
+RELEASE_VERSION = "0.2.2"
 RELEASE_CHANNEL = "registry_exchange"
+
+# Preliminary cadence defaults. They are intentionally generous until the
+# observed Home Assistant devices provide enough long-term liveness data.
+DEFAULT_EVENT_BASED_EXPECTED_INTERVAL_SECONDS = 172800
+DEFAULT_PERIODIC_EXPECTED_INTERVAL_SECONDS = 3600
+LIVENESS_IMPLAUSIBLE_AGE_MULTIPLIER = 10
 
 # A missing mode is intentionally invalid; it must never silently become
 # shadow-only. ``published`` is a separately gated, explicit pilot mode.

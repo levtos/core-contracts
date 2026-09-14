@@ -39,6 +39,7 @@ def build_diagnostic_projection(
                 completeness=evaluation.completeness,
                 root_causes=causes,
                 consumer_effect=effect,
+                freshness_assessment=quality.freshness_assessment,
             )
         )
     return DiagnosticProjection(

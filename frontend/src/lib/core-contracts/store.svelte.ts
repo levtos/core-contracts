@@ -10,7 +10,7 @@ import type {
   HealthItem,
 } from "./types";
 
-export type AppView = "overview" | "registry" | "diagnostics" | "graph" | "health";
+export type AppView = "overview" | "contracts" | "sources" | "devices" | "graph" | "setup" | "changes" | "settings" | "trace";
 export type { ConnectionState, DataState } from "../ui/state";
 
 export class CoreContractsStore {
@@ -19,6 +19,7 @@ export class CoreContractsStore {
   activeView = $state<AppView>("overview");
   search = $state("");
   selectedContractId = $state<string | null>(null);
+  selectedField = $state<string | null>(null);
   contracts = $state<Contract[]>([]);
   diagnostics = $state<DiagnosticProjection[]>([]);
   graph = $state<GraphSnapshot | null>(null);
@@ -175,7 +176,6 @@ export class CoreContractsStore {
 
   selectContract(contractId: string): void {
     this.selectedContractId = contractId;
-    this.activeView = "overview";
     if (this.client && !this.previewMode) {
       const profile = this.registry.profile;
       void this.client
@@ -191,7 +191,13 @@ export class CoreContractsStore {
 
   setView(view: AppView): void {
     this.activeView = view;
-    if (view === 'registry' && !this.registry.view) void this.registry.refresh();
+    if ((view === 'sources' || view === 'devices' || view === 'changes' || view === 'settings') && !this.registry.view) void this.registry.refresh();
+  }
+
+  openTrace(contractId: string, field: string): void {
+    this.selectContract(contractId);
+    this.selectedField = field;
+    this.activeView = "trace";
   }
 
   async switchProfile(profile: Profile) {
@@ -210,11 +216,11 @@ export class CoreContractsStore {
     await this.registry.refresh();
     if (this.registry.view?.registry.revision?.revision !== revision) {
       this.registry.notice='Diagnose stammt aus einer anderen Revision. Diagnose aktualisieren und Reparatur erneut öffnen.';
-      this.activeView='registry'; return;
+      this.activeView='changes'; return;
     }
     const binding=this.registry.bindings.find(b=>b.binding_id===bindingId && b.profile_id===profile);
-    if (!binding) {this.registry.notice='Binding ist im aktuellen Profil/Entwurf nicht vorhanden.'; this.activeView='registry'; return;}
-    this.registry.select(binding); this.activeView='registry';
+    if (!binding) {this.registry.notice='Binding ist im aktuellen Profil/Entwurf nicht vorhanden.'; this.activeView='changes'; return;}
+    this.registry.select(binding); this.activeView='changes';
   }
 
   setSearch(value: string): void {

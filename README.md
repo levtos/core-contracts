@@ -100,7 +100,7 @@ Benni-Quellen begrenzt. Der interne Betriebsmodus `shadow_only` bedeutet weiterh
 - [Soll/Ist-Abnahme](docs/v1-acceptance-audit.md)
 - [Registry-Storage](docs/registry-storage-v1.md) und [Domain-Service](docs/registry-service-v1.md)
 - [Consumer API mit Testconsumer-Vorlage](docs/consumer-api-v1.md)
-- [Registry-UX](docs/registry-ux-v1.md), [Fusion-Editor](docs/fusion-editor-v1.md)
+- [Registry-UX](docs/registry-ux-v1.md), [produktive UX V1](docs/ux-v1.md), [Fusion-Editor](docs/fusion-editor-v1.md)
 - [Device Registry und Kadenz](docs/device-registry-cadence-v1.md)
 - [Import/Export](docs/registry-import-export-v1.md), [Diagnose → Repair](docs/diagnostic-repair-v1.md)
 - [Release Notes 0.2.0](docs/release-notes-0.2.0.md)

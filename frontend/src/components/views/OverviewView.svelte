@@ -12,11 +12,12 @@
   let selectedDiagnostic = $derived(store.selectedDiagnostics);
   let degradedCount = $derived(store.contracts.filter((item) => item.health === "degraded").length);
   let blockedCount = $derived(store.contracts.filter((item) => item.health === "blocked").length);
+  let unknownCount = $derived(store.contracts.filter((item) => Object.values(item.field_states).some((state) => state === "unknown")).length);
 </script>
 
 <div class="view">
   <div class="view-intro">
-    <div><p>Stabile, versionierte Signale aus dem internen Graphen — ohne Entitäten und ohne Aktionspfad.</p></div>
+    <div><p>Was gilt gerade, wo fehlt Konfiguration und welche Sachverhalte brauchen Aufmerksamkeit?</p></div>
     <StateBanner state={store.dataState} />
   </div>
 
@@ -24,9 +25,9 @@
 
   <div class="metrics">
     <div class="metric-card"><div class="metric-icon info"><Boxes size={18} strokeWidth={2} aria-hidden="true" /></div><div><span>Contracts</span><strong>{store.contracts.length}</strong></div><small>interne Ergebnisse</small></div>
-    <div class="metric-card"><div class="metric-icon success"><Activity size={18} strokeWidth={2} aria-hidden="true" /></div><div><span>Revision</span><strong>{store.revision || "—"}</strong></div><small>Delta-Reconciliation</small></div>
-    <div class="metric-card"><div class="metric-icon warning"><AlertTriangle size={18} strokeWidth={2} aria-hidden="true" /></div><div><span>Degradiert</span><strong>{degradedCount}</strong></div><small>Felder bleiben sichtbar</small></div>
-    <div class="metric-card"><div class="metric-icon danger"><Database size={18} strokeWidth={2} aria-hidden="true" /></div><div><span>Blockiert</span><strong>{blockedCount}</strong></div><small>keine positive Aussage</small></div>
+    <div class="metric-card"><div class="metric-icon success"><Activity size={18} strokeWidth={2} aria-hidden="true" /></div><div><span>Quellen</span><strong>{store.graph?.bindings.length ?? 0}</strong></div><small>{store.registry.devices.length} Geräte</small></div>
+    <div class="metric-card"><div class="metric-icon info"><Database size={18} strokeWidth={2} aria-hidden="true" /></div><div><span>Unbekannt</span><strong>{unknownCount}</strong></div><small>neutrale Aussage, kein Fehler</small></div>
+    <div class="metric-card"><div class="metric-icon warning"><AlertTriangle size={18} strokeWidth={2} aria-hidden="true" /></div><div><span>Aufmerksamkeit</span><strong>{degradedCount + blockedCount}</strong></div><small>{degradedCount} eingeschränkt · {blockedCount} blockiert</small></div>
   </div>
 
   {#if !store.contracts.length}
@@ -61,7 +62,7 @@
   .metric-card strong { font-size: 1.35rem; letter-spacing: -0.04em; }
   .metric-card small { grid-column: 1 / -1; color: var(--color-text-muted); font-size: 0.68rem; }
   .metric-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: var(--radius-control); }
-  .metric-icon.info { background: var(--color-info-subtle); color: var(--color-info); } .metric-icon.success { background: var(--color-success-subtle); color: var(--color-success); } .metric-icon.warning { background: var(--color-warning-subtle); color: var(--color-warning); } .metric-icon.danger { background: var(--color-danger-subtle); color: var(--color-danger); }
+  .metric-icon.info { background: var(--color-info-subtle); color: var(--color-info); } .metric-icon.success { background: var(--color-success-subtle); color: var(--color-success); } .metric-icon.warning { background: var(--color-warning-subtle); color: var(--color-warning); }
   .content-grid { display: grid; grid-template-columns: minmax(280px, 0.78fr) minmax(0, 1.4fr); gap: var(--space-6); align-items: start; }
   .card-list { display: grid; gap: var(--space-2); }
   .filtered-empty { padding: var(--space-6); color: var(--color-text-muted); font-size: 0.8rem; text-align: center; }

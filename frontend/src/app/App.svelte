@@ -1,64 +1,25 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import { Activity, GitBranch, LayoutDashboard, Stethoscope } from "@lucide/svelte";
-  import AppShell from "../components/shell/AppShell.svelte";
-  import DiagnosticsView from "../components/views/DiagnosticsView.svelte";
-  import GraphView from "../components/views/GraphView.svelte";
-  import HealthView from "../components/views/HealthView.svelte";
-  import OverviewView from "../components/views/OverviewView.svelte";
-  import RegistryView from "../components/views/RegistryView.svelte";
-  import type { CoreContractsStore } from "../lib/core-contracts/store.svelte";
-  import type { AppView } from "../lib/core-contracts/store.svelte";
-  import type { NavItem } from "../components/shell/types";
-
-  let { store }: { store: CoreContractsStore } = $props();
-  const navItems: NavItem[] = [
-    { id: "overview", label: "Übersicht", hint: "Contracts", icon: LayoutDashboard },
-    { id: "registry", label: "Registry", hint: "Bindings & Revisionen", icon: GitBranch },
-    { id: "diagnostics", label: "Diagnose", hint: "Felder & Quellen", icon: Stethoscope },
-    { id: "graph", label: "Signalgraph", hint: "Bindings & Fusion", icon: GitBranch },
-    { id: "health", label: "Health", hint: "Revision & Status", icon: Activity },
-  ];
-  const titles: Record<AppView, string> = {
-    overview: "Contract-Übersicht",
-    registry: "Registry & Bindings",
-    diagnostics: "Feldbezogene Diagnose",
-    graph: "Interner Signalgraph",
-    health: "Health & Reconciliation",
-  };
-  let title = $derived(titles[store.activeView]);
-  let subline = $derived(store.previewMode ? "Lokale Vorschau · nicht live" : `${store.registry.profile} · Registry & Exchange · ${store.registry.dirty ? 'Ungespeicherte Änderungen' : 'Kein Autosave'}`);
-
-  onMount(() => {
-    const previewRequested = import.meta.env.DEV && new URLSearchParams(window.location.search).get("preview") === "fixture";
-    if (previewRequested) store.usePreview();
-    else store.start();
-    return () => store.stop();
-  });
+  import { onMount } from 'svelte';
+  import { Boxes, Cable, GitBranch, LayoutDashboard, Settings, ShieldCheck, Smartphone, Workflow } from '@lucide/svelte';
+  import AppShell from '../components/shell/AppShell.svelte'; import DraftRail from '../components/shell/DraftRail.svelte';
+  import OverviewView from '../components/views/OverviewView.svelte'; import ContractsExplorer from '../components/views/ContractsExplorer.svelte';
+  import ContractDetailView from '../components/views/ContractDetailView.svelte'; import TraceView from '../components/views/TraceView.svelte';
+  import SourcesView from '../components/views/SourcesView.svelte'; import SetupView from '../components/views/SetupView.svelte'; import SettingsView from '../components/views/SettingsView.svelte';
+  import DomainView from '../components/views/DomainView.svelte'; import RegistryView from '../components/views/RegistryView.svelte'; import GraphView from '../components/views/GraphView.svelte';
+  import { parseRoute, routeHash, type AppRoute } from '../lib/core-contracts/routing';
+  import type { CoreContractsStore, AppView } from '../lib/core-contracts/store.svelte'; import type { NavItem } from '../components/shell/types';
+  let {store}:{store:CoreContractsStore}=$props();
+  const navItems:NavItem[]=[{id:'overview',label:'Übersicht',hint:'Status',icon:LayoutDashboard},{id:'contracts',label:'Verträge',hint:'Explorer',icon:Boxes},{id:'sources',label:'Quellen',hint:'Zuordnung & Fusion',icon:Cable},{id:'devices',label:'Geräte',hint:'Identität & Lebenszeichen',icon:Smartphone},{id:'graph',label:'Abhängigkeiten',hint:'Fokusgraph',icon:GitBranch},{id:'setup',label:'Einrichtung prüfen',hint:'Funde',icon:ShieldCheck},{id:'changes',label:'Änderungen',hint:'Entwurf & Versionen',icon:Workflow},{id:'settings',label:'Einstellungen',hint:'Darstellung & System',icon:Settings}];
+  const titles:Record<AppView,string>={overview:'Übersicht',contracts:'Verträge',contract:'Vertragsdetail',sources:'Quellen',devices:'Geräte',graph:'Abhängigkeiten',setup:'Einrichtung prüfen',changes:'Änderungen und Versionen',settings:'Einstellungen',trace:'Warum? – Trace'};
+  function applyRoute(next:AppRoute){store.setView(next.view);store.selectedContractId=next.contract??(next.view==='contracts'?store.selectedContractId:null);store.selectedField=next.field??null;}
+  function route(view:AppView,contract?:string,field?:string,replace=false){const next={view,contract,field};applyRoute(next);const hash=routeHash(next);if(location.hash!==hash)history[replace?'replaceState':'pushState'](null,'',hash);}
+  function readRoute(){const fallback=store.preferences.initialView as AppView;applyRoute(parseRoute(location.hash,fallback));}
+  function editBinding(id?:string){store.registry.select(id?store.registry.bindings.find(item=>item.binding_id===id)??null:null);route('changes');}
+  function editFusion(id?:string){store.registry.selectFusion(id?store.registry.fusions.find(item=>item.fusion_id===id)??null:null);route('changes');}
+  function editDevice(id:string){const binding=store.registry.bindings.find(item=>item.device_id===id);if(binding)editBinding(binding.binding_id);else editBinding();}
+  onMount(()=>{readRoute();addEventListener('popstate',readRoute);addEventListener('hashchange',readRoute);const preview=import.meta.env.DEV&&new URLSearchParams(location.search).get('preview')==='fixture';if(preview)store.usePreview();else store.start();return()=>{removeEventListener('popstate',readRoute);removeEventListener('hashchange',readRoute);store.stop();};});
 </script>
-
-<svelte:window onbeforeunload={(event) => { if (store.registry.dirty || store.registry.importText) { event.preventDefault(); event.returnValue = ''; } }} />
-
-<AppShell
-  activeView={store.activeView}
-  {navItems}
-  {title}
-  eyebrow="Core Contracts"
-  {subline}
-  search={store.search}
-  searchLabel="Contracts filtern"
-  searchPlaceholder="Contracts filtern …"
-  previewStatus={store.previewMode}
-  connectionState={store.connectionState}
-  errorMessage={store.errorMessage}
-  onViewChange={(view) => store.setView(view as AppView)}
-  onSearch={(value) => store.setSearch(value)}
-  onRefresh={() => { void store.refresh(); if (store.activeView === 'registry') void store.registry.refresh(); }}
-  scopeLabel="Registry & Exchange"
-  scopeHint="Explizites Speichern · keine Actuation"
-  versionLabel="contract payload v1"
->
-  {#snippet children()}
-    {#if store.activeView === "overview"}<OverviewView {store} />{:else if store.activeView === "registry"}<RegistryView {store} />{:else if store.activeView === "diagnostics"}<DiagnosticsView {store} />{:else if store.activeView === "graph"}<GraphView {store} />{:else}<HealthView {store} />{/if}
-  {/snippet}
+<svelte:window onbeforeunload={(event)=>{if(store.registry.dirty||store.registry.importText){event.preventDefault();event.returnValue='';}}}/>
+<AppShell activeView={store.activeView} {navItems} title={titles[store.activeView]} eyebrow="Core Contracts" subline={store.previewMode?'Lokale Vorschau · nicht live':`${store.registry.profile} · Registry & Exchange`} search={store.search} searchLabel="Aktuelle Ansicht durchsuchen" searchPlaceholder="Suchen …" previewStatus={store.previewMode} connectionState={store.connectionState} errorMessage={store.errorMessage} onViewChange={view=>route(view as AppView)} onSearch={value=>store.setSearch(value)} onRefresh={()=>{void store.refresh();if(['sources','devices','setup','changes','settings'].includes(store.activeView))void store.registry.refresh();}} scopeLabel="Registry & Exchange" scopeHint="Entwurf vor Aktivierung" versionLabel="UX V1" uxClass={store.preferences.shellClass}>
+  {#snippet children()}<DraftRail {store} onOpen={()=>route('changes')}/>{#if store.activeView==='overview'}<OverviewView {store}/>{:else if store.activeView==='contracts'}<ContractsExplorer {store} onSelect={id=>route('contracts',id)} onDetail={id=>route('contract',id)} onTrace={(id,field)=>route('trace',id,field)} onEdit={()=>route('changes')}/>{:else if store.activeView==='contract'}<ContractDetailView {store} onBack={()=>route('contracts',store.selectedContractId??undefined)} onTrace={(id,field)=>route('trace',id,field)}/>{:else if store.activeView==='trace'}<TraceView {store} onBack={()=>route('contract',store.selectedContractId??undefined)}/>{:else if store.activeView==='sources'}<SourcesView {store} onEditBinding={editBinding} onEditFusion={editFusion}/>{:else if store.activeView==='graph'}<GraphView {store}/>{:else if store.activeView==='setup'}<SetupView {store} onBinding={editBinding} onDevice={editDevice} onContract={(id,field)=>field?route('trace',id,field):route('contract',id)}/>{:else if store.activeView==='settings'}<SettingsView {store}/>{:else if store.activeView==='changes'}<RegistryView {store}/>{:else}<DomainView {store} view={store.activeView}/>{/if}{/snippet}
 </AppShell>

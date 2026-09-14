@@ -18,9 +18,16 @@ describe("Core Contracts refresh stability", () => {
     store.registry.view={registry:{profile:'benni',revision:{id:'r',revision:7,profile:'benni',status:'active',created_at:'',payload:{profile:'benni',schema_version:1,bindings:[binding],fusions:[],contract_instances:[],consumer_overrides:{},registry_metadata:{}}},source:'postgres',health:'healthy',reason:null,used_last_known_good:false},revisions:[],requirements:[],history_error:null};
     vi.spyOn(store.registry,'refresh').mockResolvedValue();
     await store.repairBinding('benni','target',7);
-    expect(store.registry.editor?.binding_id).toBe('target'); expect(store.registry.draft).toBeNull(); expect(store.activeView).toBe('registry');
+    expect(store.registry.editor?.binding_id).toBe('target'); expect(store.registry.draft).toBeNull(); expect(store.activeView).toBe('changes');
     await store.repairBinding('benni','target',6); expect(store.registry.notice).toContain('anderen Revision');
     expect(store.registry.draft).toBeNull();
+  });
+  it('keeps selected contract and field when opening the trace route',()=>{
+    const store=new CoreContractsStore();
+    store.openTrace('contract.kitchen','open');
+    expect(store.selectedContractId).toBe('contract.kitchen');
+    expect(store.selectedField).toBe('open');
+    expect(store.activeView).toBe('trace');
   });
   it("keeps a connected shell stable during a background refresh", async () => {
     let callCount = 0;

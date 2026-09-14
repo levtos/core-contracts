@@ -5,12 +5,14 @@
   import FusionEditor from './FusionEditor.svelte';
   import RegistryTransfer from './RegistryTransfer.svelte';
   import ContractInstances from './ContractInstances.svelte';
+  import DraftDiff from './DraftDiff.svelte';
   let { store }: { store: CoreContractsStore } = $props();
   let registry = $derived(store.registry);
   let fallbackError = $derived(registry.fallbackError);
 </script>
 
 <div class="registry">
+  <DraftDiff {registry} />
   <div class="toolbar">
     <label>Profil<select value={registry.profile} disabled={registry.busy} onchange={(e) => { void store.switchProfile(e.currentTarget.value as Profile); e.currentTarget.value = registry.profile; }}><option value="benni">Benni</option><option value="eltern">Eltern</option></select></label>
     <button onclick={() => registry.refresh()} disabled={registry.busy}>Aktualisieren</button>

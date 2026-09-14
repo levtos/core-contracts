@@ -121,6 +121,7 @@ class ShadowRuntime:
         )
 
         observations = {}
+        freshness_assessments = {}
         for binding in self.graph.bindings():
             signal = self.graph.signal(binding.binding_id)
             if signal is None:
@@ -131,12 +132,19 @@ class ShadowRuntime:
                 attributes={"binding_id": binding.binding_id},
                 evidence=signal.evidence,
             )
+            freshness_assessments[binding.binding_id] = (
+                self.graph.assess_binding_freshness(
+                    binding.binding_id,
+                    now=now,
+                )
+            )
         return verify_benni_shadow_report(
             self.contracts(),
             self.graph.registry,
             source_bindings=self.graph.bindings(),
             source_observations=observations,
             now=now,
+            freshness_assessments=freshness_assessments,
         )
 
     def add_unsubscribe(self, unsubscribe) -> None:

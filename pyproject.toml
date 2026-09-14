@@ -4,13 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "benni-core-contracts"
-version = "0.2.1"
+version = "0.2.2"
 description = "Profile-isolated Registry and Exchange Layer for Home Assistant"
 requires-python = ">=3.12"
 dependencies = []
 
 [project.optional-dependencies]
 test = ["pytest>=8", "asyncpg==0.31.0", "cryptography>=43"]
+
+[tool.setuptools.packages.find]
+include = ["custom_components*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

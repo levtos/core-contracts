@@ -23,6 +23,7 @@ from .quality import (
     FreshnessOrigin,
     FreshnessRequirement,
     FreshnessStatus,
+    FreshnessAssessment,
     HealthStatus,
     QualityStatus,
     SafetyClass,
@@ -261,10 +262,12 @@ class BenniOwnerRequiredFieldGate:
         values: Mapping[str, Any],
         now: datetime,
         derived_statuses: Mapping[str, EvidenceGateStatus] | None = None,
+        freshness_assessments: Mapping[str, FreshnessAssessment] | None = None,
     ) -> OwnerRequiredGateResult:
         """Evaluate all Benni required fields without activating anything."""
 
         derived_statuses = derived_statuses or {}
+        freshness_assessments = freshness_assessments or {}
         decisions = tuple(
             _evaluate_spec(
                 spec,
@@ -277,6 +280,7 @@ class BenniOwnerRequiredFieldGate:
                 values=values,
                 now=now,
                 derived_statuses=derived_statuses,
+                freshness_assessments=freshness_assessments,
             )
             for spec in self.specs
         )
@@ -503,6 +507,7 @@ def _evaluate_spec(
     values: Mapping[str, Any],
     now: datetime,
     derived_statuses: Mapping[str, EvidenceGateStatus],
+    freshness_assessments: Mapping[str, FreshnessAssessment],
 ) -> RequiredFieldDecision:
     field_schema = schema.field(spec.field)
     value = values.get(spec.key, _MISSING)
@@ -592,6 +597,7 @@ def _evaluate_spec(
             observations.get(binding_id),
             now=now,
             ttl_seconds=field_schema.freshness_ttl_seconds,
+            freshness_assessment=freshness_assessments.get(binding_id),
         )
         for binding_id in spec.binding_ids
     )

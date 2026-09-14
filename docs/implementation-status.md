@@ -1,5 +1,19 @@
 # Implementierungsstatus – GitHub Issue #1
 
+## Issue #36 – Device Cadence und Freshness
+
+Registry-Schema v2 modelliert HA-Geräte, bestätigte Kadenz,
+`expected_interval_s`, Timestamp-Liveness-Entity und Binding-Overrides. Die
+Laufzeit löst Override → Device → Legacy/`unknown` auf. `periodic` und Legacy
+behalten die TTL-Auswertung; `event_based` verwendet getrennte, plausibilisierte
+Liveness-Evidenz. Der unbekannte Liveness-Fall ist ein Zusatzfeld der
+strukturierten Freshness-Bewertung und erweitert das bestehende Enum nicht.
+
+Harte Source-Evidence-Gates bleiben vorgelagert. Auswahl, publizierte Quality,
+Fallback, Owner-Gate, Shadow-Verifikation und Live-Evidence verwenden dieselbe
+Bewertung. Die Registry-Revision wird durch die Implementierung nicht aktiviert,
+kein Consumer wird umgestellt und keine HA-Live-Abnahme behauptet.
+
 > Aktueller Stand 0.2.0: #16/#17/#20/#21 bilden die gemeinsame Registry-/Exchange-
 > Foundation; #18/#19/#22/#23 ergänzen UX, Fusion, Transfer und Repair. #24 enthält
 > Hardening und vollständigen [Soll/Ist-Audit](v1-acceptance-audit.md).

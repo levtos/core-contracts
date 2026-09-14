@@ -18,7 +18,10 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Callable, Iterable, Mapping, Protocol
 from uuid import UUID, uuid4
 
-from .const import REGISTRY_CACHE_SCHEMA_VERSION, REGISTRY_SCHEMA_VERSION
+from .const import (
+    REGISTRY_CACHE_SCHEMA_VERSION,
+    SUPPORTED_REGISTRY_SCHEMA_VERSIONS,
+)
 from .models import ProfileId
 from .quality import HealthStatus, utc_now
 from .registry import (
@@ -212,7 +215,7 @@ class LastKnownGoodCodec:
                 raise RegistryCorruptionError(
                     f"Last-Known-Good profile/status mismatch for {profile.value}"
                 )
-            if revision.schema_version != REGISTRY_SCHEMA_VERSION:
+            if revision.schema_version not in SUPPORTED_REGISTRY_SCHEMA_VERSIONS:
                 raise RegistryCorruptionError("unsupported Last-Known-Good revision schema")
             decoded[profile] = revision
         return decoded
@@ -758,7 +761,7 @@ def _revision_from_row(row: Any) -> RegistryRevision:
                 else None
             ),
         )
-        if revision.schema_version != REGISTRY_SCHEMA_VERSION:
+        if revision.schema_version not in SUPPORTED_REGISTRY_SCHEMA_VERSIONS:
             raise RegistryCorruptionError("unsupported registry row schema version")
         return revision
     except RegistryCorruptionError:

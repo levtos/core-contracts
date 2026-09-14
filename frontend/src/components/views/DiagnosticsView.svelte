@@ -30,6 +30,13 @@
                   <span><GitBranch size={14} strokeWidth={2} aria-hidden="true" />{field.completeness ? "vollständige Evidence" : "Evidence unvollständig"}</span>
                   <span><Users size={14} strokeWidth={2} aria-hidden="true" />{field.consumer_effect}</span>
                   <span>Consumer Impact: {field.consumer_impact?.map(c=>`${c.consumer_id}: ${c.status}`).join(', ') || 'Keine deklarierten Consumer'}</span>
+                  {#if field.freshness_assessment}
+                    <span>Kadenz: {field.freshness_assessment.cadence} · Herkunft: {field.freshness_assessment.cadence_source}{field.freshness_assessment.cadence_provenance ? ` (${field.freshness_assessment.cadence_provenance})` : ''} · Basis: {field.freshness_assessment.basis}</span>
+                    <span>Wertzeitstempel: {formatDateTime(field.freshness_assessment.value_timestamp)} · Alter: {formatDuration(field.freshness_assessment.value_age_seconds)} · Ursprung: {field.freshness_assessment.value_timestamp_origin}</span>
+                    <span>Liveness: {field.freshness_assessment.liveness_configured ? field.freshness_assessment.liveness_entity : 'nicht konfiguriert'} · Ergebnis: {field.freshness_assessment.liveness_status} · Stand: {formatDateTime(field.freshness_assessment.liveness_timestamp)} · Alter: {formatDuration(field.freshness_assessment.liveness_age_seconds)}</span>
+                    <span>Erwartetes Intervall: {formatDuration(field.freshness_assessment.expected_interval_s)} · Gleiche Kadenz/Intervall-Kombination: {field.freshness_assessment.shared_binding_count} Bindings</span>
+                    {#if field.freshness_assessment.plausibility_reason}<span class="warning">Plausibilisierung: {field.freshness_assessment.plausibility_reason}</span>{/if}
+                  {/if}
                 </div>
                 {#if store.registry.admin && diagnostic.profile && diagnostic.registry_revision !== undefined}
                   {#each field.binding_ids ?? [] as bindingId (bindingId)}<button class="repair" onclick={()=>store.repairBinding(diagnostic.profile!,bindingId,diagnostic.registry_revision!)}>Binding bearbeiten: {bindingId}</button>{/each}

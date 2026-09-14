@@ -7,11 +7,16 @@ from datetime import datetime
 import logging
 from typing import Any, Callable, Iterable
 
+from .const import (
+    DEFAULT_EVENT_BASED_EXPECTED_INTERVAL_SECONDS,
+    DEFAULT_PERIODIC_EXPECTED_INTERVAL_SECONDS,
+)
 from .contracts import default_schema_registry
 from .diagnostics import build_diagnostic_projection
 from .models import (
     AtomicSignal,
     ConfigModel,
+    Device,
     DiagnosticProjection,
     FieldEvaluation,
     Fusion,
@@ -19,18 +24,25 @@ from .models import (
     PublishedContract,
     RawObservation,
     SourceBinding,
+    SourceCadence,
 )
 from .quality import (
+    CadenceSource,
     FallbackAction,
     FieldQuality,
+    FreshnessBasis,
     FreshnessOrigin,
+    FreshnessRequirement,
     FreshnessStatus,
+    FreshnessAssessment,
     HealthStatus,
+    LivenessEvidence,
     QualityIssue,
     QualityStatus,
     SafetyClass,
     ValueState,
     assess_field_quality,
+    assess_effective_freshness,
     aggregate_health,
     utc_now,
 )
@@ -76,6 +88,15 @@ class _FusionSelection:
     conflict: bool = False
 
 
+@dataclass(frozen=True)
+class _ResolvedCadence:
+    cadence: SourceCadence
+    source: CadenceSource
+    provenance: str | None
+    expected_interval_s: int | None
+    liveness_entity: str | None
+
+
 class SignalGraph:
     """A bounded graph with explicit freshness and cycle gates."""
 
@@ -86,6 +107,7 @@ class SignalGraph:
         now_factory=utc_now,
         profile: ProfileId | str | None = None,
         binding_configuration: bool = False,
+        devices: Iterable[Device] = (),
     ) -> None:
         if profile is not None and not isinstance(profile, ProfileId):
             try:
@@ -97,6 +119,11 @@ class SignalGraph:
         self._binding_configuration = binding_configuration
         self._now_factory = now_factory
         self._bindings: dict[str, SourceBinding] = {}
+        normalized_devices = tuple(devices)
+        self._devices = {device.device_id: device for device in normalized_devices}
+        if len(self._devices) != len(normalized_devices):
+            raise GraphError("duplicate device ID")
+        self._liveness_evidence: dict[str, LivenessEvidence] = {}
         self._signals: dict[str, AtomicSignal] = {}
         self._fusions: dict[tuple[str, str], Fusion] = {}
         self._fusions_by_id: dict[str, Fusion] = {}
@@ -225,6 +252,151 @@ class SignalGraph:
     def binding(self, binding_id: str) -> SourceBinding:
         return self._bindings[binding_id]
 
+    def liveness_entities(self) -> tuple[str, ...]:
+        """Return configured liveness sources without discovering new entities."""
+
+        return tuple(
+            sorted(
+                {
+                    policy.liveness_entity
+                    for binding in self._bindings.values()
+                    if binding.enabled
+                    for policy in (self._resolve_cadence(binding),)
+                    if policy.liveness_entity is not None
+                }
+            )
+        )
+
+    def update_liveness(self, evidence: LivenessEvidence) -> None:
+        if evidence.entity_id not in self.liveness_entities():
+            raise GraphError(f"unconfigured liveness entity: {evidence.entity_id}")
+        self._liveness_evidence[evidence.entity_id] = evidence
+        self._revision += 1
+        self._notify_change()
+
+    def liveness_evidence(self, entity_id: str) -> LivenessEvidence | None:
+        return self._liveness_evidence.get(entity_id)
+
+    def _resolve_cadence(self, binding: SourceBinding) -> _ResolvedCadence:
+        overrides = binding.device_overrides.values
+        device = self._devices.get(binding.device_id) if binding.device_id else None
+        if "source_cadence" in overrides:
+            cadence = SourceCadence(str(overrides["source_cadence"]))
+            source = CadenceSource.BINDING_OVERRIDE
+            provenance = "binding_override"
+        elif device is not None:
+            cadence = device.source_cadence
+            source = CadenceSource.DEVICE
+            provenance = (
+                f"label:{device.cadence_provenance.label_id}"
+                if device.cadence_provenance.kind == "label"
+                else "manual"
+            )
+        else:
+            cadence = SourceCadence.UNKNOWN
+            source = CadenceSource.LEGACY_UNKNOWN
+            provenance = None
+
+        if "expected_interval_s" in overrides:
+            interval = overrides["expected_interval_s"]
+        elif device is not None and device.expected_interval_s is not None:
+            interval = device.expected_interval_s
+        elif cadence == SourceCadence.EVENT_BASED:
+            interval = DEFAULT_EVENT_BASED_EXPECTED_INTERVAL_SECONDS
+        elif cadence == SourceCadence.PERIODIC:
+            interval = DEFAULT_PERIODIC_EXPECTED_INTERVAL_SECONDS
+        else:
+            interval = None
+        if "liveness_entity" in overrides:
+            liveness_entity = overrides["liveness_entity"]
+        else:
+            liveness_entity = device.liveness_entity if device is not None else None
+        return _ResolvedCadence(
+            cadence=cadence,
+            source=source,
+            provenance=provenance,
+            expected_interval_s=interval,
+            liveness_entity=liveness_entity,
+        )
+
+    def _shared_cadence_count(self, policy: _ResolvedCadence) -> int:
+        return sum(
+            1
+            for binding in self._bindings.values()
+            if binding.enabled
+            for other in (self._resolve_cadence(binding),)
+            if (
+                other.cadence,
+                other.expected_interval_s,
+            ) == (
+                policy.cadence,
+                policy.expected_interval_s,
+            )
+        )
+
+    def _freshness_assessment(
+        self,
+        signal: AtomicSignal,
+        field_schema: ContractFieldSchema,
+        now: datetime,
+        cache: dict[str, FreshnessAssessment],
+    ) -> FreshnessAssessment:
+        cached = cache.get(signal.binding_id)
+        if cached is not None:
+            return cached
+        binding = self._bindings.get(signal.binding_id)
+        if binding is None:
+            # Synthetic nested-fusion signals are populated in _evaluate_fusion.
+            result = assess_effective_freshness(
+                signal.evidence,
+                now=now,
+                ttl_seconds=field_schema.freshness_ttl_seconds,
+                requirement=field_schema.freshness_requirement,
+            )
+        else:
+            result = self.assess_binding_freshness(
+                binding.binding_id,
+                now=now,
+                ttl_seconds=field_schema.freshness_ttl_seconds,
+                requirement=field_schema.freshness_requirement,
+            )
+        cache[signal.binding_id] = result
+        return result
+
+    def assess_binding_freshness(
+        self,
+        binding_id: str,
+        *,
+        now: datetime,
+        ttl_seconds: int | None = None,
+        requirement: FreshnessRequirement = FreshnessRequirement.DEVICE_OR_HA_EVENT,
+    ) -> FreshnessAssessment:
+        """Resolve one current signal for gates and diagnostics."""
+
+        binding = self._bindings[binding_id]
+        signal = self._signals[binding_id]
+        policy = self._resolve_cadence(binding)
+        return assess_effective_freshness(
+            signal.evidence,
+            now=now,
+            ttl_seconds=min(
+                ttl_seconds or binding.freshness_ttl_seconds,
+                binding.freshness_ttl_seconds,
+            ),
+            requirement=requirement,
+            cadence=policy.cadence.value,
+            cadence_source=policy.source,
+            cadence_provenance=policy.provenance,
+            expected_interval_s=policy.expected_interval_s,
+            liveness_entity=policy.liveness_entity,
+            liveness_evidence=(
+                self._liveness_evidence.get(policy.liveness_entity)
+                if policy.liveness_entity is not None
+                else None
+            ),
+            shared_binding_count=self._shared_cadence_count(policy),
+        )
+
     def source_value_type(self, binding):
         types = {field.value_type.value for schema in self.registry.all()
                  for field in schema.fields if field.name == binding.field}
@@ -269,6 +441,10 @@ class SignalGraph:
         """
         if self.profile != previous.profile:
             return
+        for entity_id in self.liveness_entities():
+            evidence = previous.liveness_evidence(entity_id)
+            if evidence is not None:
+                self._liveness_evidence[entity_id] = evidence
         for binding in self.bindings():
             old = previous._bindings.get(binding.binding_id)
             signal = previous.signal(binding.binding_id)
@@ -373,6 +549,7 @@ class SignalGraph:
         evaluations: dict[str, FieldEvaluation] = {}
 
         for field_schema in schema.fields:
+            freshness_cache: dict[str, FreshnessAssessment] = {}
             fusion = self._fusions.get((contract_id, field_schema.name))
             if fusion is not None and self._binding_configuration and not fusion.strategy.startswith('opening_'):
                 policies = [self._bindings[key].fallback for key in fusion.input_binding_ids
@@ -382,7 +559,12 @@ class SignalGraph:
                         raise GraphError('fusion binding fallbacks must agree')
                     field_schema = replace(field_schema, fallback=policies[0])
             candidates = self._candidate_signals(fusion)
-            selection = self._evaluate_fusion(fusion, field_schema, reference)
+            selection = self._evaluate_fusion(
+                fusion,
+                field_schema,
+                reference,
+                freshness_cache,
+            )
             evaluation = FieldEvaluation(
                 field=field_schema.name,
                 state=selection.state,
@@ -397,6 +579,7 @@ class SignalGraph:
                 candidates,
                 field_schema,
                 reference,
+                freshness_cache,
             )
 
             physical_conflict = selection.conflict and field_schema.physical_state
@@ -406,6 +589,12 @@ class SignalGraph:
                 and not physical_conflict
             ):
                 selected = selection.selected_signal
+                freshness_assessment = self._freshness_assessment(
+                    selected,
+                    field_schema,
+                    reference,
+                    freshness_cache,
+                )
                 values[field_schema.name] = selection.value
                 states[field_schema.name] = selection.state
                 quality = assess_field_quality(
@@ -421,6 +610,12 @@ class SignalGraph:
                     now=reference,
                     last_real_change=selected.real_change_at,
                     physical_state=field_schema.physical_state,
+                    freshness_assessment=(
+                        freshness_assessment
+                        if freshness_assessment.cadence_source
+                        != CadenceSource.LEGACY_UNKNOWN
+                        else None
+                    ),
                 )
                 if selection.conflict:
                     quality = self._annotate_quality(
@@ -487,6 +682,7 @@ class SignalGraph:
                 candidates,
                 selection,
                 reference,
+                freshness_cache,
                 source_reason=source_reason,
                 quality_override=(
                     QualityStatus.CONFLICT
@@ -563,24 +759,48 @@ class SignalGraph:
         collect(fusion)
         return tuple(result)
 
-    def _evaluate_fusion(self, fusion, field_schema, now):
+    def _evaluate_fusion(self, fusion, field_schema, now, freshness_cache):
         """Evaluate child strategies, not a flattened bag of their raw inputs.
 
         Projections exist only for this evaluation. Lineage always returns actual
         binding IDs and no synthetic signal is inserted into the graph/store.
         """
         if fusion is None or not fusion.input_fusion_ids:
-            return self._select_for_fusion(fusion, self._candidate_signals(fusion), field_schema, now)
+            return self._select_for_fusion(
+                fusion,
+                self._candidate_signals(fusion),
+                field_schema,
+                now,
+                freshness_cache,
+            )
         candidates = [self._signals[key] for key in fusion.input_binding_ids if key in self._signals]
         children = {}
         for child_id in fusion.input_fusion_ids:
-            child = self._evaluate_fusion(self._fusions_by_id[child_id], field_schema, now)
+            child = self._evaluate_fusion(
+                self._fusions_by_id[child_id],
+                field_schema,
+                now,
+                freshness_cache,
+            )
             key = f"@fusion:{child_id}"
             children[key] = child
             if child.selected_signal is not None:
+                child_assessment = self._freshness_assessment(
+                    child.selected_signal,
+                    field_schema,
+                    now,
+                    freshness_cache,
+                )
+                freshness_cache[key] = child_assessment
                 candidates.append(replace(child.selected_signal, binding_id=key,
                                           value=child.value if child.state == ValueState.VALID else None))
-        selection = self._select_for_fusion(fusion, tuple(candidates), field_schema, now)
+        selection = self._select_for_fusion(
+            fusion,
+            tuple(candidates),
+            field_schema,
+            now,
+            freshness_cache,
+        )
         active = tuple(dict.fromkeys(binding for key in selection.active_binding_ids
                                     for binding in (children[key].active_binding_ids if key in children else (key,))))
         selected = selection.selected_signal
@@ -613,6 +833,7 @@ class SignalGraph:
         candidates: tuple[AtomicSignal, ...],
         field_schema: ContractFieldSchema,
         now: datetime,
+        freshness_cache: dict[str, FreshnessAssessment],
     ) -> _FusionSelection:
         candidate_ids = tuple(signal.binding_id for signal in candidates)
         strategy = fusion.strategy if fusion else "none"
@@ -622,17 +843,18 @@ class SignalGraph:
                 candidates,
                 field_schema,
                 now,
+                freshness_cache,
             )
         fresh_valid = tuple(
             signal
             for signal in candidates
             if field_schema.classify(signal.value) == ValueState.VALID
-            and signal.evidence.freshness(
+            and self._freshness_assessment(
+                signal,
+                field_schema,
                 now,
-                min(field_schema.freshness_ttl_seconds, self._bindings[signal.binding_id].freshness_ttl_seconds)
-                if signal.binding_id in self._bindings else field_schema.freshness_ttl_seconds,
-                field_schema.freshness_requirement,
-            )[0]
+                freshness_cache,
+            ).freshness
             == FreshnessStatus.FRESH
         )
 
@@ -764,6 +986,7 @@ class SignalGraph:
         candidates: tuple[AtomicSignal, ...],
         field_schema: ContractFieldSchema,
         now: datetime,
+        freshness_cache: dict[str, FreshnessAssessment],
     ) -> _FusionSelection:
         """Normalize the two raw contacts used by the opening pilot.
 
@@ -793,11 +1016,12 @@ class SignalGraph:
             signal
             for signal in contact_signals
             if contact_value(signal) is not None
-            and signal.evidence.freshness(
+            and self._freshness_assessment(
+                signal,
+                field_schema,
                 now,
-                min(field_schema.freshness_ttl_seconds, self._bindings[signal.binding_id].freshness_ttl_seconds),
-                field_schema.freshness_requirement,
-            )[0]
+                freshness_cache,
+            ).freshness
             == FreshnessStatus.FRESH
         )
         all_contacts_valid = (
@@ -921,6 +1145,7 @@ class SignalGraph:
         candidates: tuple[AtomicSignal, ...],
         field_schema: ContractFieldSchema,
         now: datetime,
+        freshness_cache: dict[str, FreshnessAssessment],
     ) -> str | None:
         """Map failed source evidence to a stable field-scoped reason."""
 
@@ -934,18 +1159,30 @@ class SignalGraph:
             for signal in candidates
         ):
             return "source_restored"
+        assessments = tuple(
+            self._freshness_assessment(
+                signal,
+                field_schema,
+                now,
+                freshness_cache,
+            )
+            for signal in candidates
+        )
+        if any(item.reason == "liveness_interval_exceeded" for item in assessments):
+            return "source_liveness_overdue"
+        if any(
+            item.basis == FreshnessBasis.DEVICE_LIVENESS
+            and item.freshness == FreshnessStatus.UNKNOWN
+            and item.reason is not None
+            and item.reason.startswith("liveness_")
+            for item in assessments
+        ):
+            return "source_liveness_unknown"
         if any(
             signal.evidence.retained
             or signal.evidence.origin == FreshnessOrigin.RETAINED_MQTT
-            or signal.evidence.freshness(
-                now,
-                min(field_schema.freshness_ttl_seconds,
-                    self._bindings[signal.binding_id].freshness_ttl_seconds)
-                if signal.binding_id in self._bindings else field_schema.freshness_ttl_seconds,
-                field_schema.freshness_requirement,
-            )[0]
-            in {FreshnessStatus.SUSPECT, FreshnessStatus.STALE}
-            for signal in candidates
+            or assessment.freshness in {FreshnessStatus.SUSPECT, FreshnessStatus.STALE}
+            for signal, assessment in zip(candidates, assessments)
         ):
             return "source_stale"
         return "source_unavailable"
@@ -989,19 +1226,49 @@ class SignalGraph:
         candidates: tuple[AtomicSignal, ...],
         selection: _FusionSelection,
         now: datetime,
+        freshness_cache: dict[str, FreshnessAssessment],
         *,
         source_reason: str | None = None,
         quality_override: QualityStatus | None = None,
     ) -> tuple[Any, ValueState, FieldQuality]:
         fallback = field_schema.fallback
-        last_signal = next(
-            (signal for signal in candidates if signal.value is not None),
-            None,
+        assessed_candidates = tuple(
+            (
+                signal,
+                self._freshness_assessment(
+                    signal,
+                    field_schema,
+                    now,
+                    freshness_cache,
+                ),
+            )
+            for signal in candidates
+            if signal.value is not None
         )
+        severity = {
+            FreshnessStatus.RESTORED: 5,
+            FreshnessStatus.STALE: 4,
+            FreshnessStatus.SUSPECT: 3,
+            FreshnessStatus.UNKNOWN: 2,
+            FreshnessStatus.FRESH: 1,
+        }
+        diagnostic_pair = max(
+            assessed_candidates,
+            key=lambda item: severity[item[1].freshness],
+            default=None,
+        )
+        last_signal = diagnostic_pair[0] if diagnostic_pair is not None else None
         previous = self._contracts.get(contract_id)
         held_value = (
             previous.values.get(field_schema.name)
             if previous is not None
+            else None
+        )
+        freshness_assessment = diagnostic_pair[1] if diagnostic_pair is not None else None
+        published_assessment = (
+            freshness_assessment
+            if freshness_assessment is not None
+            and freshness_assessment.cadence_source != CadenceSource.LEGACY_UNKNOWN
             else None
         )
 
@@ -1024,6 +1291,7 @@ class SignalGraph:
                 last_real_change=last_signal.real_change_at if last_signal else None,
                 fallback_active=True,
                 physical_state=field_schema.physical_state,
+                freshness_assessment=published_assessment,
             )
             return held_value, ValueState.UNKNOWN, quality
 
@@ -1041,6 +1309,7 @@ class SignalGraph:
                 now=now,
                 fallback_active=True,
                 physical_state=field_schema.physical_state,
+                freshness_assessment=published_assessment,
             )
             quality = self._annotate_quality(
                 quality,
@@ -1063,6 +1332,7 @@ class SignalGraph:
             freshness_requirement=field_schema.freshness_requirement,
             now=now,
             physical_state=field_schema.physical_state,
+            freshness_assessment=published_assessment,
         )
         if selection.state == ValueState.UNKNOWN:
             state = ValueState.UNKNOWN

@@ -17,6 +17,7 @@ from typing import Any, Mapping
 from .evidence_gate import EvidenceGateStatus
 from .models import ProfileId
 from .quality import (
+    FreshnessAssessment,
     FreshnessOrigin,
     FreshnessStatus,
     HealthStatus,
@@ -568,6 +569,7 @@ def assess_live_source(
     *,
     checked_at: datetime,
     ttl_seconds: int | None = None,
+    freshness_assessment: FreshnessAssessment | None = None,
 ) -> LiveFieldEvidence:
     """Assess one explicit snapshot without changing the matrix or runtime.
 
@@ -618,11 +620,15 @@ def assess_live_source(
         temporal,
         now=checked_at,
         ttl_seconds=ttl,
+        freshness_assessment=freshness_assessment,
     )
     freshness = assessment.freshness
     assessment_reason = assessment.reason
 
-    if snapshot.stale:
+    if snapshot.stale and (
+        freshness_assessment is None
+        or freshness_assessment.cadence != "event_based"
+    ):
         freshness = FreshnessStatus.STALE
         assessment_reason = "source_stale"
     reason = _reason_for_freshness(freshness, assessment_reason)

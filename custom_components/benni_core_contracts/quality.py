@@ -7,10 +7,12 @@ executes an action because of that report.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Iterable
+
+from .const import LIVENESS_IMPLAUSIBLE_AGE_MULTIPLIER
 
 
 class FreshnessOrigin(str, Enum):
@@ -29,6 +31,26 @@ class FreshnessStatus(str, Enum):
     STALE = "stale"
     UNKNOWN = "unknown"
     RESTORED = "restored"
+
+
+class LivenessStatus(str, Enum):
+    """Independent result of checking a configured device heartbeat."""
+
+    NOT_APPLICABLE = "not_applicable"
+    ALIVE = "alive"
+    OVERDUE = "overdue"
+    UNKNOWN = "unknown"
+
+
+class FreshnessBasis(str, Enum):
+    TTL = "ttl"
+    DEVICE_LIVENESS = "device_liveness"
+
+
+class CadenceSource(str, Enum):
+    BINDING_OVERRIDE = "binding_override"
+    DEVICE = "device"
+    LEGACY_UNKNOWN = "legacy_unknown"
 
 
 class FreshnessRequirement(str, Enum):
@@ -212,6 +234,188 @@ class TemporalEvidence:
 
 
 @dataclass(frozen=True)
+class LivenessEvidence:
+    """One read-only observation of a configured timestamp entity."""
+
+    entity_id: str
+    observed_at: datetime
+    timestamp: datetime | None = None
+    state: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.observed_at.tzinfo is None:
+            raise ValueError("liveness observed_at must be timezone-aware")
+        if self.timestamp is not None and self.timestamp.tzinfo is None:
+            raise ValueError("liveness timestamp must be timezone-aware")
+
+
+@dataclass(frozen=True)
+class FreshnessAssessment:
+    """Resolved freshness plus orthogonal cadence/liveness diagnostics."""
+
+    freshness: FreshnessStatus
+    reason: str | None
+    basis: FreshnessBasis
+    cadence: str
+    cadence_source: CadenceSource
+    cadence_provenance: str | None
+    value_timestamp: datetime | None
+    value_timestamp_origin: FreshnessOrigin
+    ttl_seconds: int
+    expected_interval_s: int | None = None
+    liveness_entity: str | None = None
+    liveness_status: LivenessStatus = LivenessStatus.NOT_APPLICABLE
+    liveness_timestamp: datetime | None = None
+    plausibility_reason: str | None = None
+    shared_binding_count: int = 1
+
+    def as_dict(self, now: datetime | None = None) -> dict[str, Any]:
+        def age(value: datetime | None) -> int | None:
+            if value is None or now is None:
+                return None
+            return int((now - value).total_seconds())
+
+        return {
+            "status": self.freshness.value,
+            "reason": self.reason,
+            "basis": self.basis.value,
+            "cadence": self.cadence,
+            "cadence_source": self.cadence_source.value,
+            "cadence_provenance": self.cadence_provenance,
+            "value_timestamp": (
+                self.value_timestamp.isoformat() if self.value_timestamp else None
+            ),
+            "value_timestamp_origin": self.value_timestamp_origin.value,
+            "value_age_seconds": age(self.value_timestamp),
+            "ttl_seconds": self.ttl_seconds,
+            "expected_interval_s": self.expected_interval_s,
+            "liveness_configured": self.liveness_entity is not None,
+            "liveness_entity": self.liveness_entity,
+            "liveness_status": self.liveness_status.value,
+            "liveness_timestamp": (
+                self.liveness_timestamp.isoformat()
+                if self.liveness_timestamp
+                else None
+            ),
+            "liveness_age_seconds": age(self.liveness_timestamp),
+            "plausibility_reason": self.plausibility_reason,
+            "shared_binding_count": self.shared_binding_count,
+        }
+
+
+_HARD_FRESHNESS_REASONS = frozenset(
+    {
+        "restore_value_is_not_fresh",
+        "retained_mqtt_is_not_fresh_evidence",
+        "ha_timestamp_without_state_event",
+        "device_timestamp_required",
+        "freshness_timestamp_unknown",
+        "freshness_timestamp_in_future",
+    }
+)
+
+
+def assess_effective_freshness(
+    evidence: TemporalEvidence,
+    *,
+    now: datetime,
+    ttl_seconds: int,
+    requirement: FreshnessRequirement = FreshnessRequirement.DEVICE_OR_HA_EVENT,
+    cadence: str = "unknown",
+    cadence_source: CadenceSource = CadenceSource.LEGACY_UNKNOWN,
+    cadence_provenance: str | None = None,
+    expected_interval_s: int | None = None,
+    liveness_entity: str | None = None,
+    liveness_evidence: LivenessEvidence | None = None,
+    shared_binding_count: int = 1,
+) -> FreshnessAssessment:
+    """Resolve TTL or event-based liveness without weakening hard gates."""
+
+    legacy_status, legacy_reason = evidence.freshness(now, ttl_seconds, requirement)
+    common = {
+        "cadence": cadence,
+        "cadence_source": cadence_source,
+        "cadence_provenance": cadence_provenance,
+        "value_timestamp": evidence.effective_timestamp,
+        "value_timestamp_origin": evidence.origin,
+        "ttl_seconds": ttl_seconds,
+        "expected_interval_s": expected_interval_s,
+        "liveness_entity": liveness_entity,
+        "shared_binding_count": shared_binding_count,
+    }
+    if cadence != "event_based":
+        return FreshnessAssessment(
+            freshness=legacy_status,
+            reason=legacy_reason,
+            basis=FreshnessBasis.TTL,
+            **common,
+        )
+
+    liveness_status = LivenessStatus.UNKNOWN
+    liveness_timestamp = None
+    plausibility_reason = None
+    liveness_reason = "liveness_entity_not_configured"
+    if liveness_entity is not None and liveness_evidence is None:
+        liveness_reason = "liveness_evidence_unavailable"
+    elif liveness_evidence is not None:
+        liveness_timestamp = liveness_evidence.timestamp
+        state = (liveness_evidence.state or "").casefold()
+        if state == "unavailable":
+            liveness_reason = "liveness_entity_unavailable"
+        elif state == "unknown":
+            liveness_reason = "liveness_entity_unknown"
+        elif liveness_timestamp is None:
+            liveness_reason = "liveness_timestamp_invalid"
+        elif expected_interval_s is None:
+            liveness_reason = "liveness_interval_unknown"
+        else:
+            liveness_age = (now - liveness_timestamp).total_seconds()
+            if liveness_age < 0:
+                liveness_reason = "liveness_timestamp_in_future"
+                plausibility_reason = liveness_reason
+            elif (
+                liveness_age
+                > expected_interval_s * LIVENESS_IMPLAUSIBLE_AGE_MULTIPLIER
+            ):
+                liveness_reason = "liveness_timestamp_implausibly_old"
+                plausibility_reason = liveness_reason
+            elif liveness_age > expected_interval_s:
+                liveness_status = LivenessStatus.OVERDUE
+                liveness_reason = "liveness_interval_exceeded"
+            else:
+                liveness_status = LivenessStatus.ALIVE
+                liveness_reason = None
+
+    # Restore, retained transport, disallowed/missing timestamp proof, and
+    # implausible value timestamps remain authoritative before liveness.
+    if legacy_reason in _HARD_FRESHNESS_REASONS:
+        return FreshnessAssessment(
+            freshness=legacy_status,
+            reason=legacy_reason,
+            basis=FreshnessBasis.DEVICE_LIVENESS,
+            liveness_status=liveness_status,
+            liveness_timestamp=liveness_timestamp,
+            plausibility_reason=plausibility_reason,
+            **common,
+        )
+    if liveness_status == LivenessStatus.ALIVE:
+        final_status = FreshnessStatus.FRESH
+    elif liveness_status == LivenessStatus.OVERDUE:
+        final_status = FreshnessStatus.STALE
+    else:
+        final_status = FreshnessStatus.UNKNOWN
+    return FreshnessAssessment(
+        freshness=final_status,
+        reason=liveness_reason,
+        basis=FreshnessBasis.DEVICE_LIVENESS,
+        liveness_status=liveness_status,
+        liveness_timestamp=liveness_timestamp,
+        plausibility_reason=plausibility_reason,
+        **common,
+    )
+
+
+@dataclass(frozen=True)
 class FallbackPolicy:
     """A data-selection fallback; it has no actuator or policy semantics."""
 
@@ -279,13 +483,17 @@ class FieldQuality:
     quality: QualityStatus = QualityStatus.GOOD
     reasons: tuple[QualityIssue, ...] = ()
     last_real_change: datetime | None = None
+    freshness_assessment: FreshnessAssessment | None = dataclass_field(
+        default=None,
+        compare=False,
+    )
 
     @property
     def is_healthy(self) -> bool:
         return self.health == HealthStatus.HEALTHY and self.freshness == FreshnessStatus.FRESH
 
     def as_dict(self, now: datetime | None = None) -> dict[str, Any]:
-        return {
+        data = {
             "health": self.health.value,
             "freshness": self.freshness.value,
             "safety": self.safety.value,
@@ -296,6 +504,9 @@ class FieldQuality:
             else None,
             "reasons": [reason.as_dict(now) for reason in self.reasons],
         }
+        if self.freshness_assessment is not None:
+            data["freshness_assessment"] = self.freshness_assessment.as_dict(now)
+        return data
 
 
 def assess_field_quality(
@@ -313,12 +524,32 @@ def assess_field_quality(
     freshness_requirement: FreshnessRequirement = FreshnessRequirement.DEVICE_OR_HA_EVENT,
     fallback_active: bool = False,
     physical_state: bool = False,
+    freshness_assessment: FreshnessAssessment | None = None,
 ) -> FieldQuality:
     """Create a field-level assessment with explicit fallback and evidence causes."""
 
     reasons: list[QualityIssue] = []
     freshness = FreshnessStatus.UNKNOWN
-    if evidence is not None:
+    if freshness_assessment is not None:
+        freshness = freshness_assessment.freshness
+        freshness_reason = freshness_assessment.reason
+        if freshness_reason:
+            reasons.append(
+                QualityIssue(
+                    code=freshness_reason,
+                    message=freshness_reason.replace("_", " "),
+                    field=field,
+                    source_entity=source_entity,
+                    since=evidence.received_at if evidence else None,
+                    blocking=safety_class != SafetyClass.INFORMATIONAL and not has_value,
+                    consumer_effect=(
+                        "safety_relevant_field_conservative"
+                        if safety_class != SafetyClass.INFORMATIONAL
+                        else "field_quality_only"
+                    ),
+                )
+            )
+    elif evidence is not None:
         freshness, freshness_reason = evidence.freshness(
             now,
             ttl_seconds,
@@ -365,6 +596,7 @@ def assess_field_quality(
             quality=QualityStatus.DEGRADED,
             reasons=tuple(reasons),
             last_real_change=last_real_change,
+            freshness_assessment=freshness_assessment,
         )
 
     if not has_value:
@@ -396,6 +628,7 @@ def assess_field_quality(
                 quality=QualityStatus.DEGRADED,
                 reasons=tuple(reasons),
                 last_real_change=last_real_change,
+                freshness_assessment=freshness_assessment,
             )
         reasons.append(
             QualityIssue(
@@ -434,6 +667,7 @@ def assess_field_quality(
             ),
             reasons=tuple(reasons),
             last_real_change=last_real_change,
+            freshness_assessment=freshness_assessment,
         )
 
     if freshness != FreshnessStatus.FRESH:
@@ -456,6 +690,7 @@ def assess_field_quality(
             }.get(freshness, QualityStatus.DEGRADED),
             reasons=tuple(reasons),
             last_real_change=last_real_change,
+            freshness_assessment=freshness_assessment,
         )
 
     return FieldQuality(
@@ -466,6 +701,7 @@ def assess_field_quality(
         quality=QualityStatus.GOOD,
         reasons=tuple(reasons),
         last_real_change=last_real_change,
+        freshness_assessment=freshness_assessment,
     )
 
 

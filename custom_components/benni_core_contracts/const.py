@@ -5,12 +5,19 @@ NAME = "Benni Core Contracts"
 
 CONFIG_SCHEMA_VERSION = 1
 STORAGE_SCHEMA_VERSION = 2
-REGISTRY_SCHEMA_VERSION = 1
+REGISTRY_SCHEMA_VERSION = 2
+SUPPORTED_REGISTRY_SCHEMA_VERSIONS = (1, REGISTRY_SCHEMA_VERSION)
 REGISTRY_CACHE_SCHEMA_VERSION = 1
 GATE_PACK_VERSION = 1
 WEBSOCKET_PAYLOAD_VERSION = 1
-RELEASE_VERSION = "0.2.1"
+RELEASE_VERSION = "0.2.2"
 RELEASE_CHANNEL = "registry_exchange"
+
+# Preliminary cadence defaults. They are intentionally generous until the
+# observed Home Assistant devices provide enough long-term liveness data.
+DEFAULT_EVENT_BASED_EXPECTED_INTERVAL_SECONDS = 172800
+DEFAULT_PERIODIC_EXPECTED_INTERVAL_SECONDS = 3600
+LIVENESS_IMPLAUSIBLE_AGE_MULTIPLIER = 10
 
 # A missing mode is intentionally invalid; it must never silently become
 # shadow-only. ``published`` is a separately gated, explicit pilot mode.
@@ -70,10 +77,18 @@ WS_REGISTRY_FUSION_DELETE = f"{DOMAIN}/registry/fusion/delete"
 WS_REGISTRY_EXPORT = f"{DOMAIN}/registry/export"
 WS_REGISTRY_IMPORT = f"{DOMAIN}/registry/import"
 WS_REGISTRY_MIGRATION_CANDIDATES = f"{DOMAIN}/registry/migration_candidates"
+WS_REGISTRY_DEVICE_SUGGEST = f"{DOMAIN}/registry/device/suggest"
+WS_REGISTRY_DEVICE_CREATE = f"{DOMAIN}/registry/device/create"
+WS_REGISTRY_DEVICE_UPDATE = f"{DOMAIN}/registry/device/update"
+WS_REGISTRY_DEVICE_DELETE = f"{DOMAIN}/registry/device/delete"
 WS_REGISTRY_WRITE_COMMANDS = (
     WS_REGISTRY_EXPORT,
     WS_REGISTRY_IMPORT,
     WS_REGISTRY_MIGRATION_CANDIDATES,
+    WS_REGISTRY_DEVICE_SUGGEST,
+    WS_REGISTRY_DEVICE_CREATE,
+    WS_REGISTRY_DEVICE_UPDATE,
+    WS_REGISTRY_DEVICE_DELETE,
     WS_REGISTRY_FUSION_CREATE,
     WS_REGISTRY_FUSION_UPDATE,
     WS_REGISTRY_FUSION_DELETE,

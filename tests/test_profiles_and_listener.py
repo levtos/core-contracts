@@ -4,16 +4,18 @@ import asyncio
 import sys
 import types
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from unittest.mock import patch
 
 from custom_components.benni_core_contracts.graph import SignalGraph
 from custom_components.benni_core_contracts.models import (
     ConfigModel,
+    Device,
     ProfileId,
     RuntimeMode,
     SourceBinding,
+    SourceCadence,
 )
 from custom_components.benni_core_contracts.profiles import profile_definition
 from custom_components.benni_core_contracts.quality import FreshnessOrigin, FreshnessStatus
@@ -192,3 +194,55 @@ class ProfileAndListenerTests(unittest.TestCase):
         )
         self.assertEqual(retained.evidence.origin, FreshnessOrigin.RETAINED_MQTT)
         self.assertEqual(retained.evidence.freshness(self.now, 60)[0], FreshnessStatus.SUSPECT)
+
+    def test_listener_subscribes_only_configured_liveness_entities(self) -> None:
+        liveness_entity = "sensor.room_device_last_seen"
+        binding = replace(self.binding, device_id="device.room")
+        device = Device(
+            device_id="device.room",
+            source_cadence=SourceCadence.EVENT_BASED,
+            expected_interval_s=3600,
+            liveness_entity=liveness_entity,
+        )
+        graph = SignalGraph(now_factory=lambda: self.now, devices=(device,))
+        graph.add_binding(binding)
+        runtime = ShadowRuntime(
+            ConfigModel(mode=RuntimeMode.SHADOW_ONLY, bindings=(binding,)),
+            graph,
+        )
+        states = {
+            binding.entity_id: FakeState("21.0", self.now, {}),
+            liveness_entity: FakeState(self.now.isoformat(), self.now, {}),
+        }
+        hass = FakeHass(None)
+        hass.states.get = states.get
+        subscriptions = []
+
+        def track_state_change(_hass, entity_ids, callback):
+            subscriptions.append((tuple(entity_ids), callback))
+            return lambda: None
+
+        fake_event_module = types.ModuleType("homeassistant.helpers.event")
+        fake_event_module.async_track_state_change_event = track_state_change
+        fake_homeassistant = types.ModuleType("homeassistant")
+        fake_helpers = types.ModuleType("homeassistant.helpers")
+        fake_homeassistant.helpers = fake_helpers
+        fake_helpers.event = fake_event_module
+        with patch.dict(
+            sys.modules,
+            {
+                "homeassistant": fake_homeassistant,
+                "homeassistant.helpers": fake_helpers,
+                "homeassistant.helpers.event": fake_event_module,
+            },
+        ):
+            asyncio.run(async_attach_source_listeners(hass, runtime))
+
+        self.assertEqual(
+            {entity_ids for entity_ids, _callback in subscriptions},
+            {(binding.entity_id,), (liveness_entity,)},
+        )
+        self.assertEqual(
+            graph.liveness_evidence(liveness_entity).timestamp,
+            self.now,
+        )

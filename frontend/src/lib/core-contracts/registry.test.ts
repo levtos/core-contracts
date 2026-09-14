@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RegistryEditor, type Draft, type EditableBinding, type Profile, type RegistryPayload, type RegistryView } from './registry.svelte';
+import { RegistryEditor, type Device, type DeviceProposal, type Draft, type EditableBinding, type Profile, type RegistryPayload, type RegistryView } from './registry.svelte';
 
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 function fixture(admin = true) {
@@ -21,11 +21,20 @@ function fixture(admin = true) {
     else if (cmd === 'export') result = {result:{format:'core-contracts-registry',format_version:1,payload:view.registry.revision!.payload}};
     else if (cmd === 'import') { draft={draft_id:'imported',profile,base_revision:view.registry.revision!.revision,payload:clone((msg.document as {payload:RegistryPayload}).payload)}; result={result:{draft,validation:{valid:true,errors:[]}}}; }
     else if (cmd === 'migration_candidates') result={result:{candidates:[]}};
+    else if (cmd === 'device/suggest') result={result:{entity_id:msg.entity_id as string,device_id:'device-1',device_link_found:true,
+      cadence:{conflict:true,suggested_source_cadence:null,suggested_provenance:null,requires_confirmation:true,requires_cadence_selection:true,
+        options:[{source_cadence:'event_based',evidence:[{label_id:'contact',label_name:'contact_sensor',origin:'aus Label contact_sensor'}]},
+          {source_cadence:'periodic',evidence:[{label_id:'plug',label_name:'plug',origin:'aus Label plug'}]}]},
+      liveness_candidates:[{entity_id:'sensor.last_seen',disabled:false,origin:'Geschwister-Entity mit device_class timestamp'}],
+      suggested_liveness_entity:'sensor.last_seen',requires_liveness_selection:false,
+      expected_interval_defaults:{event_based:{seconds:172800,provisional:true},periodic:{seconds:3600,provisional:true}}} satisfies DeviceProposal};
     else if (cmd === 'draft/create') { draft = {draft_id:'draft', profile, base_revision: view.registry.revision!.revision, payload: clone(view.registry.revision!.payload)}; result = {draft}; }
     else if (cmd === 'binding/create') { draft.payload.bindings.push(clone(msg.binding as EditableBinding)); result = {draft}; }
     else if (cmd === 'binding/update') { draft.payload.bindings = draft.payload.bindings.map(b => b.binding_id === msg.binding_id ? clone(msg.binding as EditableBinding) : b); result = {draft}; }
     else if (cmd === 'binding/delete') { draft.payload.bindings = draft.payload.bindings.filter(b => b.binding_id !== msg.binding_id); result = {draft}; }
     else if (cmd === 'binding/set_enabled') { draft.payload.bindings.find(b => b.binding_id === msg.binding_id)!.enabled = msg.enabled as boolean; result = {draft}; }
+    else if (cmd === 'device/create') { (draft.payload.devices ??= []).push(clone(msg.device as Device)); draft.payload.schema_version=2; result={draft}; }
+    else if (cmd === 'device/update') { draft.payload.devices=(draft.payload.devices ?? []).map(d=>d.device_id===msg.device_id?clone(msg.device as Device):d); result={draft}; }
     else if (cmd === 'contract_instance/create') { draft.payload.contract_instances.push(clone(msg.instance as Record<string,unknown>)); result={draft}; }
     else if (cmd === 'contract_instance/update') { draft.payload.contract_instances=draft.payload.contract_instances.map(i=>i.contract_id===msg.contract_id?clone(msg.instance as Record<string,unknown>):i); result={draft}; }
     else if (cmd === 'contract_instance/delete') { draft.payload.contract_instances=draft.payload.contract_instances.filter(i=>i.contract_id!==msg.contract_id); result={draft}; }
@@ -89,6 +98,17 @@ describe('Registry UI lifecycle', () => {
   it('uses actual HA entity candidates without automatically choosing', () => {
     const {editor} = fixture(); enter(editor); expect(editor.entities[0].entity_id).toBe('media_player.sonos');
     editor.editor!.entity_id=''; expect(editor.editor!.entity_id).toBe('');
+  });
+  it('does not preselect a cadence when device labels conflict', async()=>{
+    const {editor,calls}=fixture(); await editor.refresh(); enter(editor); await editor.suggestDevice();
+    expect(editor.deviceProposal?.cadence.conflict).toBe(true);
+    expect(editor.selectedCadence).toBe('');
+    await editor.confirmDevice(); expect(editor.error?.code).toBe('validation_error');
+    expect(calls.some(c=>c.type==='benni_core_contracts/registry/device/create')).toBe(false);
+    editor.selectCadence('event_based'); await editor.confirmDevice();
+    expect(editor.devices[0]).toMatchObject({device_id:'device-1',source_cadence:'event_based',expected_interval_s:172800,liveness_entity:'sensor.last_seen'});
+    expect(editor.editor?.device_id).toBe('device-1');
+    expect(calls.some(c=>c.type==='benni_core_contracts/registry/draft/save')).toBe(false);
   });
   it('protects IDs and profile before sending writes', async () => {
     const {editor,calls} = fixture(); await editor.refresh(); enter(editor); await editor.apply();

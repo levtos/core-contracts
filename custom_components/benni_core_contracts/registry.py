@@ -13,8 +13,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Iterable, Mapping
 
-from .const import REGISTRY_SCHEMA_VERSION
-from .models import ConfigModel, Fusion, ProfileId, SourceBinding
+from .const import SUPPORTED_REGISTRY_SCHEMA_VERSIONS
+from .models import ConfigModel, Device, Fusion, ProfileId, SourceBinding
 from .quality import HealthStatus, utc_now
 
 
@@ -148,8 +148,12 @@ class RegistryPayload:
     """One complete profile configuration stored in a registry revision."""
 
     profile: ProfileId = ProfileId.BENNI
-    schema_version: int = REGISTRY_SCHEMA_VERSION
+    # Legacy construction remains v1 so existing bindings/checksums do not
+    # change merely because this code is installed. New edit sessions choose
+    # v2 explicitly in RegistryDomainService.
+    schema_version: int = 1
     bindings: tuple[SourceBinding, ...] = ()
+    devices: tuple[Device, ...] = ()
     fusions: tuple[Fusion, ...] = ()
     contract_instances: tuple[dict[str, Any], ...] = ()
     consumer_overrides: Mapping[str, Any] = field(default_factory=dict)
@@ -158,7 +162,7 @@ class RegistryPayload:
     def __post_init__(self) -> None:
         if not isinstance(self.profile, ProfileId):
             raise ValueError("registry profile must be a supported ProfileId")
-        if self.schema_version != REGISTRY_SCHEMA_VERSION:
+        if self.schema_version not in SUPPORTED_REGISTRY_SCHEMA_VERSIONS:
             raise ValueError(
                 f"unsupported registry schema version: {self.schema_version}"
             )
@@ -179,6 +183,29 @@ class RegistryPayload:
         binding_ids = [binding.binding_id for binding in bindings]
         if len(set(binding_ids)) != len(binding_ids):
             raise ValueError("registry binding IDs must be unique")
+
+        devices = tuple(self.devices)
+        if any(not isinstance(device, Device) for device in devices):
+            raise ValueError("registry devices must be Device objects")
+        device_ids = [device.device_id for device in devices]
+        if len(set(device_ids)) != len(device_ids):
+            raise ValueError("registry device IDs must be unique")
+        device_references = tuple(
+            binding.binding_id
+            for binding in bindings
+            if binding.device_id is not None and binding.device_id not in set(device_ids)
+        )
+        if device_references:
+            raise ValueError(
+                "registry bindings reference unknown devices: "
+                + ", ".join(device_references)
+            )
+        uses_device_model = bool(devices) or any(
+            binding.device_id is not None or binding.device_overrides.values
+            for binding in bindings
+        )
+        if self.schema_version == 1 and uses_device_model:
+            raise ValueError("registry schema v1 cannot contain device metadata")
 
         fusions = tuple(self.fusions)
         if any(not isinstance(fusion, Fusion) for fusion in fusions):
@@ -211,6 +238,7 @@ class RegistryPayload:
             raise ValueError("registry_metadata must be an object")
 
         object.__setattr__(self, "bindings", bindings)
+        object.__setattr__(self, "devices", devices)
         object.__setattr__(self, "fusions", fusions)
         object.__setattr__(
             self,
@@ -263,6 +291,7 @@ class RegistryPayload:
             "profile",
             "schema_version",
             "bindings",
+            "devices",
             "fusions",
             "contract_instances",
             "consumer_overrides",
@@ -288,6 +317,12 @@ class RegistryPayload:
             )
             for record in binding_records
         )
+        device_records = _record_sequence(
+            data.get("devices", ()),
+            label="devices",
+            identity_key="device_id",
+        )
+        devices = tuple(Device.from_dict(dict(record)) for record in device_records)
         fusion_records = _record_sequence(
             data.get("fusions", ()),
             label="fusions",
@@ -298,9 +333,10 @@ class RegistryPayload:
         return cls(
             profile=profile,
             schema_version=int(
-                data.get("schema_version", REGISTRY_SCHEMA_VERSION)
+                data.get("schema_version", 1)
             ),
             bindings=bindings,
+            devices=devices,
             fusions=fusions,
             contract_instances=_record_sequence(
                 data.get("contract_instances", ()),
@@ -312,8 +348,7 @@ class RegistryPayload:
         )
 
     def as_dict(self) -> dict[str, Any]:
-        return _json_clone(
-            {
+        data = {
                 "profile": self.profile.value,
                 "schema_version": self.schema_version,
                 "bindings": [binding.as_dict() for binding in self.bindings],
@@ -323,7 +358,11 @@ class RegistryPayload:
                 ],
                 "consumer_overrides": dict(self.consumer_overrides),
                 "registry_metadata": dict(self.registry_metadata),
-            },
+            }
+        if self.schema_version >= 2:
+            data["devices"] = [device.as_dict() for device in self.devices]
+        return _json_clone(
+            data,
             label="registry payload",
         )
 
@@ -375,7 +414,7 @@ class RegistryRevision:
             raise ValueError("revision payload must be a RegistryPayload")
         if self.profile != self.payload.profile:
             raise ValueError("revision profile does not match its payload")
-        if self.schema_version != REGISTRY_SCHEMA_VERSION:
+        if self.schema_version not in SUPPORTED_REGISTRY_SCHEMA_VERSIONS:
             raise ValueError("unsupported persisted registry schema version")
         if self.schema_version != self.payload.schema_version:
             raise ValueError("revision schema version does not match its payload")
@@ -494,6 +533,7 @@ def validate_registry_payload(
             registry=schema_registry or default_schema_registry(),
             profile=normalized.profile,
             binding_configuration=True,
+            devices=normalized.devices,
         )
         for binding in normalized.bindings:
             graph.add_binding(binding)

@@ -135,6 +135,20 @@ Feld-TTLs `fresh` ergeben. `received_at` allein genügt nicht.
 Wertänderung fortgeschrieben. Persistenz- und Retained-Ereignisse zählen nicht
 als neue echte Messung.
 
+Die effektive Freshness wird einmal zentral pro Binding aufgelöst. `periodic`
+und Legacy/`unknown` verwenden die bestehende TTL-Regel. `event_based` begrenzt
+nicht das Alter des letzten Ereigniswerts, sondern bewertet eine konfigurierte
+Timestamp-Liveness-Entity gegen `expected_interval_s`. Das Zusatzfeld
+`liveness_status` unterscheidet `alive`, `overdue` und `unknown`, ohne das
+bestehende `FreshnessStatus`-Enum oder dessen Rangfolgen zu verändern.
+
+Restore, Retained, unerlaubte Herkunft und fehlender Zeitstempelnachweis bleiben
+vorgelagerte harte Gates. Auswahl, veröffentlichte Feldqualität,
+Fallback-Diagnose, Owner-Gate, Shadow-Verifikation und Live-Evidence erhalten
+dieselbe aufgelöste Bewertung. Laufende Altersdetails sind aus der
+Dataclass-Gleichheit ausgeschlossen und erzeugen daher keine künstlichen
+`QUALITY_CHANGED`-Ereignisse.
+
 ## Quality, Fallback und Safety
 
 Quality ist feldbezogen. `healthy`, `degraded`, `blocked` und `unknown` werden

@@ -10,6 +10,10 @@ from .const import (
     WS_REGISTRY_EXPORT,
     WS_REGISTRY_IMPORT,
     WS_REGISTRY_MIGRATION_CANDIDATES,
+    WS_REGISTRY_DEVICE_SUGGEST,
+    WS_REGISTRY_DEVICE_CREATE,
+    WS_REGISTRY_DEVICE_UPDATE,
+    WS_REGISTRY_DEVICE_DELETE,
     WS_REGISTRY_FUSION_CREATE,
     WS_REGISTRY_FUSION_UPDATE,
     WS_REGISTRY_FUSION_DELETE,
@@ -377,6 +381,18 @@ async def async_dispatch_registry_write(
         )
     if command == WS_REGISTRY_FUSION_DELETE:
         return await service.async_delete_fusion(msg["draft_id"], msg["fusion_id"], actor_id=actor_id)
+    if command == WS_REGISTRY_DEVICE_CREATE:
+        return await service.async_create_device(
+            draft_id, msg["device"], actor_id=actor_id
+        )
+    if command == WS_REGISTRY_DEVICE_UPDATE:
+        return await service.async_update_device(
+            draft_id, msg["device_id"], msg["device"], actor_id=actor_id
+        )
+    if command == WS_REGISTRY_DEVICE_DELETE:
+        return await service.async_delete_device(
+            draft_id, msg["device_id"], actor_id=actor_id
+        )
     if command == WS_REGISTRY_GET_ACTIVE:
         return await service.async_read_active(profile)
     if command == WS_REGISTRY_LIST_REVISIONS:
@@ -530,6 +546,22 @@ async def async_register_registry_write_api(
             vol.Required("draft_id"): str,
             vol.Required("contract_id"): str,
         },
+        WS_REGISTRY_DEVICE_SUGGEST: {
+            vol.Required("entity_id"): str,
+        },
+        WS_REGISTRY_DEVICE_CREATE: {
+            vol.Required("draft_id"): str,
+            vol.Required("device"): dict,
+        },
+        WS_REGISTRY_DEVICE_UPDATE: {
+            vol.Required("draft_id"): str,
+            vol.Required("device_id"): str,
+            vol.Required("device"): dict,
+        },
+        WS_REGISTRY_DEVICE_DELETE: {
+            vol.Required("draft_id"): str,
+            vol.Required("device_id"): str,
+        },
     }
 
     field_schemas.update({
@@ -581,6 +613,11 @@ async def async_register_registry_write_api(
                     candidates = migration_candidates(hass.config_entries.async_entries(),
                         set(hass.states.async_entity_ids()), profile.value)
                     connection.send_result(request_id, {"result": {"candidates": candidates}})
+                    return
+                if _command == WS_REGISTRY_DEVICE_SUGGEST:
+                    from .device_registry import device_proposal
+                    proposal = device_proposal(hass, msg["entity_id"])
+                    connection.send_result(request_id, _registry_write_result(_command, proposal))
                     return
                 result = await async_dispatch_registry_write(
                     selected,

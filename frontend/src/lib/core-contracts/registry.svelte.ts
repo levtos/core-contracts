@@ -1,4 +1,4 @@
-import type { HassLike, SourceBinding, Fusion } from './types';
+import type { HassLike, SourceBinding, Fusion, SourceCadence } from './types';
 
 export type Profile = 'benni' | 'eltern';
 export interface EditableBinding extends SourceBinding { display_name?: string; enabled?: boolean }
@@ -6,6 +6,21 @@ export interface RegistryPayload {
   profile: Profile; schema_version: number; bindings: EditableBinding[];
   fusions: Fusion[]; contract_instances: Record<string, unknown>[];
   consumer_overrides: Record<string, unknown>; registry_metadata: Record<string, unknown>;
+  devices?: Device[];
+}
+export interface Device {
+  device_id:string; source_cadence:SourceCadence; expected_interval_s?:number;
+  liveness_entity?:string; cadence_provenance:{kind:'manual'|'label';label_id?:string};
+}
+export interface DeviceProposal {
+  entity_id:string; device_id:string|null; device_link_found:boolean;
+  cadence:{conflict:boolean; suggested_source_cadence:SourceCadence|null;
+    suggested_provenance:{kind:'label';label_id:string}|null;
+    requires_confirmation:boolean; requires_cadence_selection:boolean;
+    options:{source_cadence:SourceCadence;evidence:{label_id:string;label_name:string;origin:string}[]}[]};
+  liveness_candidates:{entity_id:string;disabled:boolean;origin:string}[];
+  suggested_liveness_entity:string|null; requires_liveness_selection:boolean;
+  expected_interval_defaults:Partial<Record<SourceCadence,{seconds:number;provisional:boolean}>>;
 }
 export interface Revision { id: string; revision: number; profile: Profile; status: string; created_at: string; payload: RegistryPayload }
 export interface Draft { draft_id: string; profile: Profile; base_revision: number; payload: RegistryPayload }
@@ -38,6 +53,10 @@ export class RegistryEditor {
   importText = $state('');
   exportText = $state('');
   migrationHints = $state<MigrationHint[]>([]);
+  deviceProposal = $state<DeviceProposal | null>(null);
+  selectedCadence = $state<SourceCadence | ''>('');
+  selectedLiveness = $state('');
+  selectedExpectedInterval = $state<number | null>(null);
   selectedEntities = $state<string[]>([]);
   candidateQueue = $state<string[]>([]);
   filter = $state('');
@@ -58,6 +77,7 @@ export class RegistryEditor {
   get fusions() { return this.draft?.payload.fusions ?? this.view?.registry.revision?.payload.fusions ?? []; }
   get instances() { return this.draft?.payload.contract_instances ?? this.view?.registry.revision?.payload.contract_instances ?? []; }
   get bindings() { return this.draft?.payload.bindings ?? this.view?.registry.revision?.payload.bindings ?? []; }
+  get devices() { return this.draft?.payload.devices ?? this.view?.registry.revision?.payload.devices ?? []; }
   get filteredBindings() { const q = this.filter.toLowerCase(); return this.bindings.filter(b => `${b.binding_id} ${b.display_name ?? ''} ${b.entity_id} ${b.field}`.toLowerCase().includes(q)); }
   get base() { return this.draft?.base_revision ?? this.editBase ?? this.view?.registry.revision?.revision ?? 0; }
   get entities() { return Object.values(this.hass?.states ?? {}); }
@@ -121,6 +141,55 @@ export class RegistryEditor {
     };
     this.fallbackText = JSON.stringify(this.editor.fallback.default_value ?? null); this.fallbackError = '';
     this.notice = '';
+    this.deviceProposal = null; this.selectedCadence = ''; this.selectedLiveness = ''; this.selectedExpectedInterval=null;
+  }
+  async suggestDevice() { await this.run(async()=>{
+    if (!this.editor?.entity_id) throw new RegistryError('validation_error','Zuerst eine Entity auswählen.');
+    const response=await this.request<{result:DeviceProposal}>('device/suggest',{entity_id:this.editor.entity_id});
+    this.deviceProposal=response.result;
+    this.selectedCadence=response.result.cadence.conflict ? '' : (response.result.cadence.suggested_source_cadence ?? '');
+    this.selectedLiveness=response.result.requires_liveness_selection ? '' : (response.result.suggested_liveness_entity ?? '');
+    const existing=this.devices.find(item=>item.device_id===response.result.device_id)?.expected_interval_s;
+    const suggested=this.selectedCadence ? response.result.expected_interval_defaults[this.selectedCadence]?.seconds : undefined;
+    this.selectedExpectedInterval=existing ?? suggested ?? null;
+  }); }
+  selectCadence(value:SourceCadence|'') {
+    this.selectedCadence=value;
+    if (value && this.deviceProposal) {
+      this.selectedExpectedInterval=this.deviceProposal.expected_interval_defaults[value]?.seconds ?? null;
+    } else {
+      this.selectedExpectedInterval=null;
+    }
+  }
+  async confirmDevice() { await this.run(async()=>{
+    const proposal=this.deviceProposal;
+    if (!this.editor || !proposal?.device_id) throw new RegistryError('validation_error','Keine HA-Gerätezuordnung vorhanden.');
+    if (!this.selectedCadence) throw new RegistryError('validation_error','Kadenz ausdrücklich auswählen.');
+    if (proposal.requires_liveness_selection && !this.selectedLiveness) throw new RegistryError('validation_error','Liveness-Entity ausdrücklich auswählen.');
+    const evidence=proposal.cadence.options.find(o=>o.source_cadence===this.selectedCadence)?.evidence[0];
+    const device:Device={device_id:proposal.device_id,source_cadence:this.selectedCadence,
+      cadence_provenance:evidence?{kind:'label',label_id:evidence.label_id}:{kind:'manual'}};
+    if (this.selectedLiveness) device.liveness_entity=this.selectedLiveness;
+    if (this.selectedExpectedInterval !== null) {
+      if (!Number.isInteger(this.selectedExpectedInterval) || this.selectedExpectedInterval <= 0) throw new RegistryError('validation_error','Meldeintervall muss eine positive ganze Zahl sein.');
+      device.expected_interval_s=this.selectedExpectedInterval;
+    }
+    const draft=await this.ensureDraft();
+    const existing=this.devices.some(item=>item.device_id===device.device_id);
+    const response=await this.request<{draft:Draft}>(existing?'device/update':'device/create',{
+      draft_id:draft.draft_id,...(existing?{device_id:device.device_id}:{}),device});
+    this.draft=response.draft; this.editor.device_id=device.device_id;
+    this.changed=true; this.validation=null; this.notice='Gerätewerte bestätigt und nur in den Entwurf übernommen.';
+  }); }
+  setDeviceOverride(key:'source_cadence'|'expected_interval_s'|'liveness_entity', enabled:boolean, value:unknown=null) {
+    if (!this.editor) return;
+    const overrides={...(this.editor.device_overrides ?? {})};
+    if (enabled) Object.assign(overrides,{[key]:value}); else delete overrides[key];
+    this.editor.device_overrides=overrides;
+  }
+  updateDeviceOverride(key:'source_cadence'|'expected_interval_s'|'liveness_entity', value:unknown) {
+    if (!this.editor) return;
+    this.editor.device_overrides={...(this.editor.device_overrides ?? {}),[key]:value};
   }
   async ensureDraft() {
     if (!this.draft) {
@@ -167,7 +236,7 @@ export class RegistryEditor {
     await this.request('draft/save', {draft_id: draft.draft_id, expected_base_revision: draft.base_revision});
     this.clear(); this.notice = 'Revision gespeichert und aktiviert.'; await this.read(); this.onActivated?.();
   }); }
-  private clear() { this.draft = null; this.editor = null; this.original = null; this.fusionEditor = null; this.originalFusion = null; this.instanceEditor = null; this.originalInstance = null; this.changed = false; this.validation = null; this.editBase = null; this.fallbackText = 'null'; this.fallbackError = ''; }
+  private clear() { this.draft = null; this.editor = null; this.original = null; this.fusionEditor = null; this.originalFusion = null; this.instanceEditor = null; this.originalInstance = null; this.changed = false; this.validation = null; this.editBase = null; this.fallbackText = 'null'; this.fallbackError = ''; this.deviceProposal=null; this.selectedCadence=''; this.selectedLiveness=''; this.selectedExpectedInterval=null; }
   selectInstance(instance: Record<string, unknown> | null) {
     if (!this.admin || this.busy) return;
     if (this.instanceDirty) { this.notice='Offene Contract-Eingabe zuerst übernehmen oder verwerfen.'; return; }

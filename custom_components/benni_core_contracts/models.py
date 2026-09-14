@@ -25,6 +25,7 @@ from .const import (
 from .quality import (
     FallbackPolicy,
     FieldQuality,
+    FreshnessAssessment,
     FreshnessOrigin,
     FreshnessStatus,
     HealthStatus,
@@ -60,6 +61,135 @@ class RuntimeMode(str, Enum):
     PUBLISHED = MODE_PUBLISHED
 
 
+class SourceCadence(str, Enum):
+    """How a physical device normally emits source evidence."""
+
+    PERIODIC = "periodic"
+    EVENT_BASED = "event_based"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class CadenceProvenance:
+    """Recorded origin of an explicitly confirmed cadence selection."""
+
+    kind: str
+    label_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in {"manual", "label"}:
+            raise ValueError("cadence provenance kind must be manual or label")
+        if self.kind == "label" and not self.label_id:
+            raise ValueError("label cadence provenance needs label_id")
+        if self.kind == "manual" and self.label_id is not None:
+            raise ValueError("manual cadence provenance cannot contain label_id")
+
+    def as_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {"kind": self.kind}
+        if self.label_id is not None:
+            data["label_id"] = self.label_id
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CadenceProvenance":
+        if not isinstance(data, Mapping) or set(data) - {"kind", "label_id"}:
+            raise ValueError("cadence_provenance contains unknown fields")
+        return cls(kind=str(data["kind"]), label_id=data.get("label_id"))
+
+
+@dataclass(frozen=True)
+class Device:
+    """Confirmed Home Assistant device metadata stored in registry v2."""
+
+    device_id: str
+    source_cadence: SourceCadence
+    expected_interval_s: int | None = None
+    liveness_entity: str | None = None
+    cadence_provenance: CadenceProvenance = field(
+        default_factory=lambda: CadenceProvenance("manual")
+    )
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.device_id, str) or not self.device_id.strip():
+            raise ValueError("device_id is required")
+        if not isinstance(self.source_cadence, SourceCadence):
+            raise ValueError("source_cadence must be supported")
+        if self.expected_interval_s is not None and (
+            type(self.expected_interval_s) is not int or self.expected_interval_s <= 0
+        ):
+            raise ValueError("expected_interval_s must be a positive integer")
+        if self.liveness_entity is not None and (
+            not isinstance(self.liveness_entity, str)
+            or "." not in self.liveness_entity
+            or "*" in self.liveness_entity
+        ):
+            raise ValueError("liveness_entity must be one concrete HA entity")
+
+    def as_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            "device_id": self.device_id,
+            "source_cadence": self.source_cadence.value,
+            "cadence_provenance": self.cadence_provenance.as_dict(),
+        }
+        if self.expected_interval_s is not None:
+            data["expected_interval_s"] = self.expected_interval_s
+        if self.liveness_entity is not None:
+            data["liveness_entity"] = self.liveness_entity
+        return data
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "Device":
+        allowed = {
+            "device_id", "source_cadence", "expected_interval_s",
+            "liveness_entity", "cadence_provenance",
+        }
+        if not isinstance(data, Mapping) or set(data) - allowed:
+            raise ValueError("Device contains unknown fields")
+        return cls(
+            device_id=str(data["device_id"]),
+            source_cadence=SourceCadence(str(data["source_cadence"])),
+            expected_interval_s=data.get("expected_interval_s"),
+            liveness_entity=data.get("liveness_entity"),
+            cadence_provenance=CadenceProvenance.from_dict(
+                data.get("cadence_provenance", {"kind": "manual"})
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class DeviceOverrides:
+    """Binding overrides with explicit key-presence for nullable inheritance."""
+
+    values: Mapping[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        allowed = {"source_cadence", "expected_interval_s", "liveness_entity"}
+        if not isinstance(self.values, Mapping) or set(self.values) - allowed:
+            raise ValueError("device_overrides contains unknown fields")
+        normalized = dict(self.values)
+        cadence = normalized.get("source_cadence")
+        if "source_cadence" in normalized:
+            if cadence is None:
+                raise ValueError("source_cadence override cannot be null")
+            normalized["source_cadence"] = SourceCadence(str(cadence)).value
+        interval = normalized.get("expected_interval_s")
+        if interval is not None and (type(interval) is not int or interval <= 0):
+            raise ValueError("expected_interval_s override must be positive or null")
+        entity = normalized.get("liveness_entity")
+        if entity is not None and (
+            not isinstance(entity, str) or "." not in entity or "*" in entity
+        ):
+            raise ValueError("liveness_entity override must be concrete or null")
+        object.__setattr__(self, "values", normalized)
+
+    def as_dict(self) -> dict[str, Any]:
+        return dict(self.values)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any] | None) -> "DeviceOverrides":
+        return cls({} if data is None else data)
+
+
 @dataclass(frozen=True)
 class SourceBinding:
     """Maps one raw HA source to one internal field input."""
@@ -77,6 +207,8 @@ class SourceBinding:
     read_only: bool = True
     display_name: str | None = None
     enabled: bool = True
+    device_id: str | None = None
+    device_overrides: DeviceOverrides = field(default_factory=DeviceOverrides)
 
     def __post_init__(self) -> None:
         if not self.binding_id or not self.source_id or not self.field or not self.capability:
@@ -96,6 +228,12 @@ class SourceBinding:
             raise ValueError("SourceBinding is read-only by design")
         if not isinstance(self.enabled, bool):
             raise ValueError("enabled must be a boolean")
+        if self.device_id is not None and (
+            not isinstance(self.device_id, str) or not self.device_id.strip()
+        ):
+            raise ValueError("device_id must be non-empty when supplied")
+        if not isinstance(self.device_overrides, DeviceOverrides):
+            raise ValueError("device_overrides must be DeviceOverrides")
 
     def as_dict(self) -> dict[str, Any]:
         data = {
@@ -117,6 +255,10 @@ class SourceBinding:
             data["display_name"] = self.display_name
         if not self.enabled:
             data["enabled"] = False
+        if self.device_id is not None:
+            data["device_id"] = self.device_id
+        if self.device_overrides.values:
+            data["device_overrides"] = self.device_overrides.as_dict()
         return data
 
     @classmethod
@@ -128,7 +270,7 @@ class SourceBinding:
     ) -> "SourceBinding":
         allowed = {'binding_id','source_id','entity_id','field','capability','profile_id',
                    'required','freshness_ttl_seconds','consumer_ids','fallback','read_only',
-                   'display_name','enabled'}
+                   'display_name','enabled','device_id','device_overrides'}
         if set(data) - allowed:
             raise ValueError('SourceBinding contains unknown fields')
         for key in ('required','read_only','enabled'):
@@ -161,6 +303,8 @@ class SourceBinding:
             fallback=FallbackPolicy.from_dict(data.get("fallback")),
             read_only=bool(data.get("read_only", True)),
             enabled=data.get("enabled", True),
+            device_id=data.get("device_id"),
+            device_overrides=DeviceOverrides.from_dict(data.get("device_overrides")),
         )
 
 
@@ -340,9 +484,10 @@ class FieldDiagnostic:
     completeness: bool
     root_causes: tuple[QualityIssue, ...]
     consumer_effect: str
+    freshness_assessment: FreshnessAssessment | None = None
 
     def as_dict(self, now: datetime | None = None) -> dict[str, Any]:
-        return {
+        data = {
             "field": self.field,
             "state": self.state.value,
             "health": self.health.value,
@@ -355,6 +500,9 @@ class FieldDiagnostic:
             "root_causes": [cause.as_dict(now) for cause in self.root_causes],
             "consumer_effect": self.consumer_effect,
         }
+        if self.freshness_assessment is not None:
+            data["freshness_assessment"] = self.freshness_assessment.as_dict(now)
+        return data
 
 
 @dataclass(frozen=True)
@@ -369,12 +517,13 @@ class DiagnosticProjection:
     generated_at: datetime
 
     def as_dict(self, now: datetime | None = None) -> dict[str, Any]:
+        reference = now or self.generated_at
         return {
             "projection_id": self.projection_id,
             "contract_id": self.contract_id,
             "schema_id": self.schema_id,
             "health": self.health.value,
-            "fields": [field.as_dict(now) for field in self.fields],
+            "fields": [field.as_dict(reference) for field in self.fields],
             "generated_at": self.generated_at.isoformat(),
         }
 

@@ -45,6 +45,20 @@ anderen Haushalt zurück. Aufrufe ohne Selektor bleiben kompatibel.
 Consumer-Nutzung wird read-only aus deklarierten Rollen und dem Fusion-DAG
 abgeleitet. Es gibt keine manuelle Consumer-Zuordnung oder Override-UX.
 
+## Geräte, Kadenz und Liveness
+
+Die Gerätezuordnung stammt aus der HA Entity Registry. Geräte-Labels erzeugen
+nur sichtbare Vorschläge; widersprüchliche periodische und eventbasierte Labels
+lassen die Auswahl leer und erzwingen eine bewusste Entscheidung. Gleiches gilt
+für mehrere Timestamp-Liveness-Kandidaten. Entity-Namen werden nicht zur
+Kadenzableitung verwendet.
+
+Die änderbaren Startwerte 172800 Sekunden (`event_based`) und 3600 Sekunden
+(`periodic`) werden als vorläufig angezeigt. Die Diagnose zeigt die effektive
+Kadenz samt Herkunft, Wert- und Liveness-Zeitstempel samt Alter,
+Liveness-Ergebnis, Plausibilisierungsgrund und die Anzahl der Bindings mit
+derselben Kombination aus Kadenz und Intervall. Diese Anzahl ist reine Anzeige.
+
 ## Abnahmegrenze
 
 Store-Tests decken beide Profile, CRUD/Enabled, echte Entity-Kandidaten, ID-Schutz,

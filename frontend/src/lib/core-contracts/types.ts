@@ -125,6 +125,9 @@ export interface SourceBinding {
   consumer_ids: string[];
   fallback: { action: FallbackAction; default_value: unknown; reason: string };
   read_only: boolean;
+  /** Optional edit fields; the backend serializes them only when used. */
+  display_name?: string;
+  enabled?: boolean;
   device_id?: string;
   device_overrides?: {
     source_cadence?: SourceCadence;
@@ -212,8 +215,19 @@ export interface HassConnection {
   sendMessagePromise<T = unknown>(message: Record<string, unknown>): Promise<T>;
 }
 
+export interface HassEntityState {
+  entity_id: string;
+  state?: string;
+  last_changed?: string;
+  last_updated?: string;
+  attributes: { friendly_name?: string; device_class?: string; [key: string]: unknown };
+}
+
+/** Frontend-side shape of the Home Assistant `hass` object. Only read access is used. */
 export interface HassLike {
   connection?: HassConnection;
   user?: { id: string; is_admin: boolean };
-  states?: Record<string, { entity_id: string; attributes: { friendly_name?: string } }>;
+  states?: Record<string, HassEntityState>;
+  devices?: Record<string, { id?: string; name?: string | null; name_by_user?: string | null; model?: string | null; manufacturer?: string | null; labels?: string[]; area_id?: string | null }>;
+  entities?: Record<string, { entity_id: string; device_id?: string | null; labels?: string[]; name?: string | null }>;
 }

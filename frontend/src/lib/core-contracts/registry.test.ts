@@ -106,8 +106,11 @@ describe('Registry UI lifecycle', () => {
     await editor.confirmDevice(); expect(editor.error?.code).toBe('validation_error');
     expect(calls.some(c=>c.type==='benni_core_contracts/registry/device/create')).toBe(false);
     editor.selectCadence('event_based'); await editor.confirmDevice();
+    expect(editor.stagedDevice).toMatchObject({device_id:'device-1',source_cadence:'event_based',expected_interval_s:172800,liveness_entity:'sensor.last_seen'});
+    expect(editor.devices).toHaveLength(0); expect(calls.some(c=>c.type==='benni_core_contracts/registry/device/create')).toBe(false);
+    await editor.apply();
     expect(editor.devices[0]).toMatchObject({device_id:'device-1',source_cadence:'event_based',expected_interval_s:172800,liveness_entity:'sensor.last_seen'});
-    expect(editor.editor?.device_id).toBe('device-1');
+    expect(editor.editor?.device_id).toBe('device-1'); expect(editor.stagedDevice).toBeNull();
     expect(calls.some(c=>c.type==='benni_core_contracts/registry/draft/save')).toBe(false);
   });
   it('protects IDs and profile before sending writes', async () => {

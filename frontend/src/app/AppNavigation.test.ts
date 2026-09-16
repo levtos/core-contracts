@@ -11,15 +11,15 @@ const navigate=async(direction:'back'|'forward')=>{const popped=new Promise<void
 
 describe('application history routing',()=>{
   it('opens a direct detail URL and restores explorer state through browser back and forward',async()=>{
-    history.replaceState(null,'','#/contracts?contract=room.living');
+    history.replaceState(null,'','#/contracts?contract=room.living&status=degraded&sort=schema');
     history.pushState(null,'','#/contract?contract=room.living');
-    const store=new CoreContractsStore();store.usePreview();store.contractHealthFilter='degraded';store.contractSort='schema';
+    const store=new CoreContractsStore();store.usePreview();
     component=mount(App,{target:document.body,props:{store}});await settle();
     expect(store.activeView).toBe('contract');
     expect(document.body.textContent).toContain('Technische Details');
     await navigate('back');
     expect(store.activeView).toBe('contracts');
-    expect(store.contractHealthFilter).toBe('degraded');expect(store.contractSort).toBe('schema');
+    expect(store.contractFilter.status).toBe('degraded');expect(store.contractFilter.sort).toBe('schema');
     await navigate('forward');
     expect(store.activeView).toBe('contract');
   });

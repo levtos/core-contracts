@@ -45,10 +45,14 @@ historische Prüfgrenzen, keine aktuelle Einschränkung des Elternprofils.
 
 ## Svelte-5-Verwaltung
 
-Die HA-Seitenleiste enthält Übersicht, Registry mit Bindings, Fusionen,
-Contract-Instanzen, Import/Export, Historie und Einstellungen sowie Diagnose,
-Graph und Health. Echte HA-Entities sind durchsuchbar; Vorschläge benötigen
-immer eine ausdrückliche Auswahl und Rollen-/Capability-Bestätigung.
+Das HA-Panel gliedert sich in Übersicht, Verträge, Quellen
+(Quellenzuordnungen und Zusammenführungen), Geräte, Abhängigkeiten, Aktuelle
+Probleme, Änderungen und Einstellungen. Listen folgen einem Muster aus
+statischen Kennzahlen, Tabelle, Inspector und Stift-Dialog; jede
+Konfiguration nach der Ersteinrichtung ist über die Oberfläche möglich.
+Echte HA-Entities sind durchsuchbar; Gerätevorschläge nennen ihre Herkunft
+und benötigen immer eine ausdrückliche Bestätigung. Details stehen in
+[UX V2](docs/ux-v2.md).
 
 Es gibt **kein Autosave**:
 

@@ -34,8 +34,6 @@ export class CoreContractsStore {
   fusionFilter = $state<ListFilter>({ ...DEFAULT_FILTER });
   deviceFilter = $state<ListFilter>({ ...DEFAULT_FILTER });
   sourceTab = $state<"bindings" | "fusions">("bindings");
-  contractHealthFilter = $state("all");
-  contractSort = $state<"name" | "schema" | "quality">("name");
   graphFocus = $state("");
   graphMode = $state<GraphMode>("current");
   contracts = $state<Contract[]>([]);

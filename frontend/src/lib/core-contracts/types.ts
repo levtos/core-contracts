@@ -125,6 +125,9 @@ export interface SourceBinding {
   consumer_ids: string[];
   fallback: { action: FallbackAction; default_value: unknown; reason: string };
   read_only: boolean;
+  /** Optional edit fields; the backend serializes them only when used. */
+  display_name?: string;
+  enabled?: boolean;
   device_id?: string;
   device_overrides?: {
     source_cadence?: SourceCadence;

@@ -2,7 +2,7 @@ export type Density='comfortable'|'compact';
 export type TimeDisplay='relative'|'exact'|'both';
 export type TextSize='system'|'large'|'xlarge';
 export type MotionPreference='system'|'reduce';
-export type StartView='overview'|'contracts'|'last';
+export type StartView='overview'|'contracts'|'sources'|'devices'|'problems'|'changes'|'last';
 export type OpenBehavior='inspector'|'detail';
 export interface PreferenceData {density:Density;technicalNames:boolean;timeDisplay:TimeDisplay;textSize:TextSize;motion:MotionPreference;startView:StartView;openBehavior:OpenBehavior;lastView:string}
 export const DEFAULT_PREFERENCES:PreferenceData={density:'comfortable',technicalNames:false,timeDisplay:'both',textSize:'system',motion:'system',startView:'overview',openBehavior:'inspector',lastView:'overview'};

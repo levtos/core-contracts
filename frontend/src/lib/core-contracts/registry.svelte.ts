@@ -188,7 +188,7 @@ export class RegistryEditor {
   /** Quiet background re-read of the active revision. Never touches drafts or open dialogs. */
   async poll() {
     if (this.busy || !this.hass?.connection) return;
-    try { await this.read(); if (this.dialog && this.externalChange) this.notice = 'Der gerade bearbeitete Eintrag wurde extern geändert.'; }
+    try { await this.read(); if (this.error?.code === 'backend_unavailable') this.error = null; if (this.dialog && this.externalChange) this.notice = 'Der gerade bearbeitete Eintrag wurde extern geändert.'; }
     catch { /* keep the last known view; the read-only shell reports connection problems */ }
   }
   async refresh() { await this.run(async () => {

@@ -4,5 +4,5 @@ export type NavItem = {
   id: string;
   label: string;
   hint: string;
-  icon: Component<{ size?: number; strokeWidth?: number }>;
+  icon: Component<{ size?: number; strokeWidth?: number; 'aria-hidden'?: boolean | 'true' | 'false' }>;
 };

@@ -29,15 +29,16 @@ describe('release blocker flows',()=>{
 
   it('uses distinct binding and fusion records and exposes supported fusion actions',()=>{
     const store=new CoreContractsStore();store.usePreview();store.preferences.set('technicalNames',true);store.registry.setHass({user:{id:'admin',is_admin:true}});
-    const editBinding=vi.fn(),editFusion=vi.fn();
-    component=mount(SourcesView,{target:document.body,props:{store,onEditBinding:editBinding,onEditFusion:editFusion}});flushSync();
+    component=mount(SourcesView,{target:document.body,props:{store,onTrace:vi.fn()}});flushSync();
     expect(document.body.textContent).toContain('sensor.living_humidity');
     click(button('Zusammenführungen'));
     expect(document.body.textContent).toContain('fusion.living.temperature');
     expect(document.body.textContent).not.toContain('sensor.living_humidity');
-    click(button('Ansehen'));expect(document.body.textContent).toContain('Eingänge');
-    click(button('Zusammenführung anlegen'));expect(editFusion).toHaveBeenCalledWith();
-    click(button('Bearbeiten'));expect(editFusion).toHaveBeenCalledWith('fusion.living.temperature');
+    const row=[...document.querySelectorAll('table[aria-label="Zusammenführungen"] tbody tr')][0] as HTMLElement;click(row);
+    expect(document.body.textContent).toContain('Eingänge in Reihenfolge');
+    click(button('Zusammenführung hinzufügen'));expect(store.registry.dialog).toBe('fusion');expect(store.registry.originalFusion).toBeNull();
+    store.registry.cancelDialog();flushSync();
+    click(document.querySelector('button[aria-label="Zusammenführung room.living · temperature bearbeiten"]') as HTMLElement);expect(store.registry.fusionEditor?.fusion_id).toBe('fusion.living.temperature');
   });
 
   it('offers an explicit focus and every graph mode without treating unknown as an error',()=>{

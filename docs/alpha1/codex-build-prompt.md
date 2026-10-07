@@ -1,3 +1,5 @@
+> **⛔ SUPERSEDED (2026-10-07) — NICHT AUSFÜHREN.** Dieses Dokument vermischte Phase 1 (Platform Foundation) und Phase 2 (Domain Contracts); der zugehörige Bauauftrag #46 ist geschlossen. Gültig: [Levtos/core_contract_app → docs/platform-alpha1/](https://github.com/Levtos/core_contract_app/tree/main/docs/platform-alpha1). Das DOCUMENTATION DELTA (DD-1 bis DD-8) gilt inhaltlich weiter.
+
 # Codex-Auftrag: Core Contracts Alpha 1 bauen
 
 Du bist **Codex** und implementierst **Core Contracts Alpha 1**. Das ist ein Bauauftrag, kein

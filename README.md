@@ -1,5 +1,10 @@
 # Core Contracts — Registry & Exchange Foundation
 
+> **Umbau geplant:** Core Contracts wird als Supervisor-verwaltete Home-Assistant-App neu aufgebaut
+> (Alpha 1). Die verbindliche Zielspezifikation steht unter
+> [docs/alpha1/build-specification.md](docs/alpha1/build-specification.md); Übersicht Alt/Neu:
+> [docs/README.md](docs/README.md). Die folgende Beschreibung betrifft die bisherige Integration v0.2.x.
+
 Core Contracts (`benni_core_contracts`) verbindet Home-Assistant-Integrationen
 über stabile, versionierte fachliche Contracts: Rohquelle/Owner → Core Contracts
 → Consumer. Die Foundation normalisiert Daten, fusioniert Quellen und liefert
